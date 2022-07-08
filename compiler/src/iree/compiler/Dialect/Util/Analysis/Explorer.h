@@ -208,6 +208,11 @@ class Explorer {
       Block *targetBlock,
       std::function<WalkResult(Block *sourceBlock, OperandRange operands)> fn);
 
+  // Walks all predecessor blocks providing values for |blockArg|.
+  TraversalResult walkIncomingBlockArgument(
+      BlockArgument blockArg,
+      std::function<WalkResult(Block *sourceBlock, Value operand)> fn);
+
   // Walks all successor blocks of |sourceBlock| and provides their arguments.
   // Note that |sourceBlock| may be enumerated if there is recursion.
   TraversalResult walkOutgoingBranchArguments(
