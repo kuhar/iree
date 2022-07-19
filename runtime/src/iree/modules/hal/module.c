@@ -1263,14 +1263,24 @@ IREE_VM_ABI_EXPORT(iree_hal_module_device_queue_execute,  //
   IREE_VM_ABI_VLA_STACK_DEREF(args, a4_count, a4, iree_hal_command_buffer, 32,
                               &command_buffer_count, &command_buffers);
 
+  // TODO(benvanik): fix HAL backends to support queued execution.
+  // For now we just perform a blocking wait to synchronize with the queue
+  // before we add our new work.
+  IREE_RETURN_IF_ERROR(
+      iree_hal_fence_wait(wait_fence, iree_infinite_timeout()));
+
   iree_hal_submission_batch_t batch = {
-      .wait_semaphores = iree_hal_fence_semaphore_list(wait_fence),
+      // .wait_semaphores = iree_hal_fence_semaphore_list(wait_fence),
       .signal_semaphores = iree_hal_fence_semaphore_list(signal_fence),
       .command_buffer_count = command_buffer_count,
       .command_buffers = command_buffers,
   };
   IREE_RETURN_IF_ERROR(iree_hal_device_queue_submit(
       device, IREE_HAL_COMMAND_CATEGORY_ANY, queue_affinity, 1, &batch));
+
+  // TODO(benvanik): fix HAL backends to support queued execution.
+  IREE_RETURN_IF_ERROR(
+      iree_hal_fence_wait(signal_fence, iree_infinite_timeout()));
 
   return iree_ok_status();
 }
