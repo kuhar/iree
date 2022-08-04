@@ -136,6 +136,17 @@ iree_cc_test(
     iree::testing::gtest_main
 )
 
+iree_cc_test(
+  NAME
+    jakub_test
+  SRCS
+    "i64_emulation_test.cc"
+  DEPS
+    ::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
 iree_cc_library(
   NAME
     target_platform
