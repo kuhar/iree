@@ -383,4 +383,9 @@ def StableHloLegalizeToLinalgPass : Pass<"stablehlo-legalize-to-linalg", "func::
                         /*default=*/"false",
                         "Lower to primitive Linalg ops (map, reduce and "
                         "transpose) when possible, instead of linalg.generic">];
+  let dependentDialects = ["mhlo::MhloDialect", "stablehlo::StablehloDialect",
+                           "arith::ArithDialect", "complex::ComplexDialect",
+                           "linalg::LinalgDialect", "math::MathDialect",
+                           "scf::SCFDialect", "shape::ShapeDialect",
+                           "tensor::TensorDialect"];
 }

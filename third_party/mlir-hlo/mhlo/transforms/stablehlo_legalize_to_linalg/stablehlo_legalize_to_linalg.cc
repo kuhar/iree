@@ -61,6 +61,7 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "stablehlo/dialect/StablehloOps.h"
 
 namespace mlir {
 namespace mhlo {
@@ -4414,9 +4415,9 @@ struct StableHloLegalizeToLinalgPass
     auto func = getOperation();
     mhlo::populateScalarHloToArithmeticConversionPatterns(
         &ctx, *typeConverter, &patterns,
-        [](Operation* op) { return isInBodyOfLinalgOps(op); });
-    mhlo::populateHloToLinalgConversionPattern(&ctx, *typeConverter, &patterns,
-                                               enablePrimitiveOps);
+        [](Operation *op) { return isInBodyOfLinalgOps(op); });
+    mhlo::populateStableHloToLinalgConversionPattern(
+        &ctx, *typeConverter, &patterns, enablePrimitiveOps);
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
