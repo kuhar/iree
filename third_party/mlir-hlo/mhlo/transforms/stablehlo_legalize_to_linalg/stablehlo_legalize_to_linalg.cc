@@ -3831,12 +3831,12 @@ struct ReduceWindowOpConversion
 
 /// Converts xla-hlo.torch_index_select op to a linalg.generic op.
 struct TorchIndexSelectOpConversion
-    : public OpConversionPattern<mhlo::TorchIndexSelectOp> {
-  using OpConversionPattern<mhlo::TorchIndexSelectOp>::OpConversionPattern;
+    : public OpConversionPattern<stablehlo::TorchIndexSelectOp> {
+  using OpConversionPattern::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(
-      mhlo::TorchIndexSelectOp op, OpAdaptor adaptor,
-      ConversionPatternRewriter& rewriter) const final {
+  LogicalResult
+  matchAndRewrite(stablehlo::TorchIndexSelectOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     int axis = static_cast<int>(op.getDim());
     int batch = static_cast<int>(op.getBatchDims());
     auto indexShapedType = adaptor.getIndex().getType().cast<ShapedType>();
@@ -4143,18 +4143,19 @@ struct GatherConversion : public OpConversionPattern<mhlo::GatherOp> {
   }
 };
 
-class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
- public:
-  using OpConversionPattern<mhlo::DotGeneralOp>::OpConversionPattern;
-  LogicalResult matchAndRewrite(
-      mhlo::DotGeneralOp op, OpAdaptor adaptor,
-      ConversionPatternRewriter& rewriter) const final {
+class DotGeneralOpConversion
+    : public OpConversionPattern<stablehlo::DotGeneralOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(stablehlo::DotGeneralOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     if (!verifyHloOpBufferOrTensorSemantics(op)) {
       return failure();
     }
 
     // Get various dimension iterator information
-    mhlo::DotDimensionNumbersAttr dimNumbers = op.getDotDimensionNumbers();
+    stablehlo::DotDimensionNumbersAttr dimNumbers = op.getDotDimensionNumbers();
     auto lhsBatchingDims = dimNumbers.getLhsBatchingDimensions();
     auto rhsBatchingDims = dimNumbers.getRhsBatchingDimensions();
     auto lhsContractingDims = dimNumbers.getLhsContractingDimensions();

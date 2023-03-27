@@ -1764,3 +1764,150 @@ func.func @pad_interior_negative(%arg0: tensor<12x4xui32>, %arg1: tensor<ui32>) 
 //       CHECK: %[[PAD:.*]] = tensor.insert_slice %{{.+}} into %{{.+}}[4, 0] [12, 4] [2, 2] : tensor<12x4xi32> into tensor<29x10xi32>
 //       CHECK: %[[SLICE:.*]] = tensor.extract_slice %[[PAD]][0, 1] [25, 9] [1, 1] : tensor<29x10xi32> to tensor<25x9xi32>
 
+// -----
+
+func.func @torch_index_select(%arg0: tensor<5x1x5xi32>,
+                         %arg1: tensor<2xi32>) ->  tensor<2x1x5xi32> {
+  %0 = "stablehlo.torch_index_select"(%arg0, %arg1) {
+    dim = 0 : i64,
+    batch_dims = 0 : i64,
+    someattr
+  } : (tensor<5x1x5xi32>, tensor<2xi32>) -> tensor<2x1x5xi32>
+  func.return %0 : tensor<2x1x5xi32>
+}
+//  CHECK-DAG: #[[MAP0:.+]] = affine_map<(d0, d1, d2) -> (d0)>
+//  CHECK-DAG: #[[MAP1:.+]] = affine_map<(d0, d1, d2) -> (d1, d2)>
+//  CHECK-DAG: #[[MAP2:.+]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+//      CHECK: func @torch_index_select
+// CHECK-SAME:   %[[INPUT:[a-zA-Z0-9_]*]]
+// CHECK-SAME:   %[[INDEX:[a-zA-Z0-9_]*]]
+//      CHECK: %[[INIT1:.+]] = tensor.empty() :
+//      CHECK: %[[INIT2:.+]] = tensor.empty() :
+//      CHECK: linalg.generic {
+// CHECK-SAME:   indexing_maps
+// CHECK-SAME:   #[[MAP0]], #[[MAP1]], #[[MAP2]]
+// CHECK-SAME:   iterator_types = ["parallel", "parallel", "parallel"]
+// CHECK-SAME: ins(%[[INDEX]], %[[INIT1]] :
+// CHECK-SAME: outs(%[[INIT2]] :
+// CHECK-SAME: {someattr}
+//      CHECK: ^{{.+}}(%[[VAL:.+]]: i32, %{{.+}}: i32, %{{.+}}: i32):
+//      CHECK:   %[[CAST:.+]] = arith.index_cast %[[VAL]] : i32 to index
+//      CHECK:   %[[J:.+]] = linalg.index 1
+//      CHECK:   %[[K:.+]] = linalg.index 2
+//      CHECK:   %[[VAL2:.+]] = tensor.extract %[[INPUT]][%[[CAST]], %[[J]], %[[K]]] : tensor<5x1x5xi32>
+//      CHECK:   linalg.yield %[[VAL2]] : i32
+
+
+// -----
+
+func.func @dot_general(%arg0: tensor<?x?x?xf32>,
+                  %arg1: tensor<?x?x?xf32>) -> tensor<?x?x?xf32> {
+  %0 = "stablehlo.dot_general"(%arg0, %arg1) {
+    dot_dimension_numbers = #stablehlo.dot<
+      lhs_batching_dimensions = [1],
+      lhs_contracting_dimensions = [2],
+      rhs_batching_dimensions = [2],
+      rhs_contracting_dimensions = [1]
+    >,
+    precision_config = [#stablehlo<precision DEFAULT>, #stablehlo<precision DEFAULT>],
+    someattr
+  } : (tensor<?x?x?xf32>, tensor<?x?x?xf32>) -> tensor<?x?x?xf32>
+  func.return %0 : tensor<?x?x?xf32>
+}
+// The iterations are (Batch Dim, LHS Other Dim, RHS Other dim, Contracting Dim)
+// CHECK: #[[MAP0:.*]] = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3)>
+// CHECK: #[[MAP1:.*]] = affine_map<(d0, d1, d2, d3) -> (d2, d3, d0)>
+// Output is the iterators excluding contracting
+// CHECK: #[[MAP2:.*]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
+// CHECK: func @dot_general(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<?x?x?xf32>, %[[ARG1:.*]]: tensor<?x?x?xf32>)
+// CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+// CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[D0:.*]] = tensor.dim %[[ARG0]], %[[C1]]
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG0]], %[[C0]]
+// CHECK: %[[D2:.*]] = tensor.dim %[[ARG1]], %[[C0]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D0]], %[[D1]], %[[D2]])
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// Only contracting dims are reductions
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "parallel", "reduction"]
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<?x?x?xf32>, tensor<?x?x?xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<?x?x?xf32>)
+// CHECK-SAME: {someattr}
+// CHECK:   ^bb0(%[[ARG2:.*]]: f32, %[[ARG3:.*]]: f32, %[[ARG4:.*]]: f32):
+// CHECK:     %[[MUL:.*]] = arith.mulf %[[ARG2]], %[[ARG3]] : f32
+// CHECK:     %[[SUM:.*]] = arith.addf %[[ARG4]], %[[MUL]] : f32
+// CHECK:     linalg.yield %[[SUM]] : f32
+// CHECK: } -> tensor<?x?x?xf32>
+
+// -----
+
+func.func @dot_general_unsigned(%arg0: tensor<?x?x?xui32>,
+                  %arg1: tensor<?x?x?xui32>) -> tensor<?x?x?xui32> {
+  %0 = "stablehlo.dot_general"(%arg0, %arg1) {
+    dot_dimension_numbers = #stablehlo.dot<
+      lhs_batching_dimensions = [1],
+      lhs_contracting_dimensions = [2],
+      rhs_batching_dimensions = [2],
+      rhs_contracting_dimensions = [1]
+    >,
+    precision_config = [#stablehlo<precision DEFAULT>, #stablehlo<precision DEFAULT>],
+    someattr
+  } : (tensor<?x?x?xui32>, tensor<?x?x?xui32>) -> tensor<?x?x?xui32>
+  func.return %0 : tensor<?x?x?xui32>
+}
+
+// CHECK-LABEL: func @dot_general_unsigned(
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<?x?x?xi32>, tensor<?x?x?xi32>)
+// CHECK-SAME: outs({{.*}} : tensor<?x?x?xi32>)
+
+// -----
+
+func.func @dot_general_complex(%arg0: tensor<?x?x?xcomplex<f32>>,
+                  %arg1: tensor<?x?x?xcomplex<f32>>) -> tensor<?x?x?xcomplex<f32>> {
+  %0 = "stablehlo.dot_general"(%arg0, %arg1) {
+    dot_dimension_numbers = #stablehlo.dot<
+      lhs_batching_dimensions = [1],
+      lhs_contracting_dimensions = [2],
+      rhs_batching_dimensions = [2],
+      rhs_contracting_dimensions = [1]
+    >,
+    precision_config = [#stablehlo<precision DEFAULT>, #stablehlo<precision DEFAULT>],
+    someattr
+  } : (tensor<?x?x?xcomplex<f32>>, tensor<?x?x?xcomplex<f32>>) -> tensor<?x?x?xcomplex<f32>>
+  func.return %0 : tensor<?x?x?xcomplex<f32>>
+}
+
+// CHECK-LABEL: func @dot_general_complex(
+// CHECK: linalg.generic
+// CHECK: complex.mul
+// CHECK: complex.add
+
+// -----
+
+func.func @dot_general_multiple_batch_dimensions(%arg0: tensor<3x4x2x4xi32>,
+             %arg1: tensor<3x4x3x2xi32>) -> tensor<3x4x4x3xi32> {
+  %0 = "stablehlo.dot_general"(%arg0, %arg1) {
+    dot_dimension_numbers = #stablehlo.dot<
+      lhs_batching_dimensions = [0, 1],
+      rhs_batching_dimensions = [0, 1],
+      lhs_contracting_dimensions = [2],
+      rhs_contracting_dimensions = [3]>,
+    precision_config = [#stablehlo<precision DEFAULT>, #stablehlo<precision DEFAULT>],
+    someattr
+  } : (tensor<3x4x2x4xi32>, tensor<3x4x3x2xi32>) -> tensor<3x4x4x3xi32>
+  return %0 : tensor<3x4x4x3xi32>
+}
+
+// CHECK: #[[MAP0:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d4, d2)>
+// CHECK: #[[MAP1:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4)>
+// CHECK: #[[MAP2:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3)>
+// CHECK-LABEL: func @dot_general_multiple_batch_dimensions(
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction"]}
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<3x4x2x4xi32>, tensor<3x4x3x2xi32>)
+// CHECK-SAME: outs({{.*}} : tensor<3x4x4x3xi32>)
+// CHECK-SAME: {someattr}
