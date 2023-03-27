@@ -376,3 +376,11 @@ def ShapeLegalizeToHloPass : Pass<"shape-legalize-to-hlo", "func::FuncOp"> {
   }];
   let dependentDialects = ["mhlo::MhloDialect"];
 }
+
+def StableHloLegalizeToLinalgPass : Pass<"stablehlo-legalize-to-linalg", "func::FuncOp"> {
+  let summary = "Legalize from StableHLO dialect to Linalg dialect.";
+  let options = [Option<"enablePrimitiveOps", "enable-primitive-ops", "bool",
+                        /*default=*/"false",
+                        "Lower to primitive Linalg ops (map, reduce and "
+                        "transpose) when possible, instead of linalg.generic">];
+}

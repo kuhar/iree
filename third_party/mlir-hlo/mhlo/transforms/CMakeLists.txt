@@ -263,6 +263,33 @@ add_mlir_library(MhloToLinalg
   MLIRTransformUtils
 )
 
+add_mlir_library(StableHloToLinalg
+  stablehlo_legalize_to_linalg/stablehlo_legalize_to_linalg.cc
+
+  DEPENDS
+  MLIRhlo_opsIncGen
+  MLIRMhloPassIncGen
+
+  LINK_COMPONENTS
+  Core
+
+  LINK_LIBS PUBLIC
+  HloToLinalgUtils
+  LmhloDialect
+  MhloDialect
+  MhloRngUtils
+  MhloToArithmeticConversion
+  MhloTypeConversion
+  MLIRBufferizationDialect
+  MLIRComplexDialect
+  MLIRIR
+  MLIRLinalgTransforms
+  MLIRLinalgUtils
+  MLIRPass
+  MLIRRewrite
+  MLIRTransformUtils
+)
+
 add_mlir_library(MhloShapeOpsToStandard
   hlo_legalize_shape_ops_to_standard/hlo_legalize_shape_ops_to_standard.cc
 
@@ -335,6 +362,7 @@ target_link_libraries(AllMhloPasses INTERFACE
   MhloToStandard
   HloToLinalgUtils
   MhloToLinalg
+  StableHloToLinalg
   MhloToThloConversion
   MhloShapeOpsToStandard
   MhloToStablehlo
