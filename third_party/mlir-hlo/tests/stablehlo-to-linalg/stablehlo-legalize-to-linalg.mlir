@@ -908,3 +908,88 @@ func.func @select_mixed(%pred: tensor<2x?xi1>, %lhs: tensor<?x2xf32>,
          : (tensor<2x?xi1>, tensor<?x2xf32>, tensor<2x2xf32>) -> (tensor<?x2xf32>)
   func.return %0 : tensor<?x2xf32>
 }
+
+// -----
+
+// CHECK-LABEL: func @bitcast_convert
+func.func @bitcast_convert(%input: tensor<2x2xi32>) -> tensor<2x2xf32> {
+  %result = "stablehlo.bitcast_convert"(%input) : (tensor<2x2xi32>) -> tensor<2x2xf32>
+  func.return %result : tensor<2x2xf32>
+}
+// CHECK: tensor.empty
+// CHECK: linalg.generic
+// CHECK-NEXT: ^bb0(%[[OPERAND_IN:.*]]: i32, %{{.*}}: f32):
+// CHECK-NEXT:   %[[RESULT:.*]] = arith.bitcast %[[OPERAND_IN]] : i32 to f32
+// CHECK-NEXT:   linalg.yield %[[RESULT]] : f32
+
+// CHECK-PRIMITIVE: linalg.map
+// CHECK-PRIMITIVE: arith.bitcast
+
+// -----
+
+// CHECK-LABEL: func @bitcast_convert_dynamic
+func.func @bitcast_convert_dynamic(%input: tensor<?x?xi32>) -> tensor<?x?xf32> {
+  %result = "stablehlo.bitcast_convert"(%input) : (tensor<?x?xi32>) -> tensor<?x?xf32>
+  func.return %result : tensor<?x?xf32>
+}
+// CHECK: tensor.empty
+// CHECK: linalg.generic
+// CHECK-NEXT: ^bb0(%[[OPERAND_IN:.*]]: i32, %{{.*}}: f32):
+// CHECK-NEXT:   %[[RESULT:.*]] = arith.bitcast %[[OPERAND_IN]] : i32 to f32
+// CHECK-NEXT:   linalg.yield %[[RESULT]] : f32
+
+// CHECK-PRIMITIVE: linalg.map
+// CHECK-PRIMITIVE: arith.bitcast
+
+// -----
+
+// CHECK: #[[MAP0:.*]] = affine_map<(d0, d1) -> (d0)>
+// CHECK: #[[MAP1:.*]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @bitcast_convert_expand
+func.func @bitcast_convert_expand(%input: tensor<6xi32>) -> tensor<6x4xi8> {
+  %result = "stablehlo.bitcast_convert"(%input) : (tensor<6xi32>) -> tensor<6x4xi8>
+  func.return %result : tensor<6x4xi8>
+}
+
+// CHECK: %[[C8:.*]] = arith.constant 8 : i32
+// CHECK: tensor.empty() : tensor<6x4xi8>
+// CHECK: %[[RESULT:.*]] = linalg.generic {
+// CHECK:    indexing_maps = [#[[MAP0]], #[[MAP1]]],
+// CHECK:    iterator_types = ["parallel", "parallel"]}
+// CHECK:    ^bb0(%[[IN:.*]]: i32, %[[OUT:.*]]: i8):
+// CHECK:      %[[IOTA:.*]] = linalg.index 1 : index
+// CHECK:      %[[IOTA_CASTED:.*]] = arith.index_cast %[[IOTA]] : index to i32
+// CHECK:      %[[AMT:.*]] = arith.muli %[[IOTA_CASTED]], %[[C8]] : i32
+// CHECK:      %[[SHIFT:.*]] = arith.shrui %[[IN]], %[[AMT]] : i32
+// CHECK:      %[[TRUNC:.*]] = arith.trunci %[[SHIFT]] : i32 to i8
+// CHECK:      linalg.yield %[[TRUNC]] : i8
+// CHECK:    } -> tensor<6x4xi8>
+// CHECK:    return %[[RESULT]] : tensor<6x4xi8>
+
+// -----
+
+// CHECK: #[[MAP0:.*]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK: #[[MAP1:.*]] = affine_map<(d0, d1) -> (d0)>
+// CHECK-LABEL: func @bitcast_convert_contract
+func.func @bitcast_convert_contract(%input: tensor<7x4xi8>) -> tensor<7xi32> {
+  %result = "stablehlo.bitcast_convert"(%input) : (tensor<7x4xi8>) -> tensor<7xi32>
+  func.return %result : tensor<7xi32>
+}
+// CHECK-DAG: %[[C0:.*]] = arith.constant 0 : i32
+// CHECK-DAG: %[[C8:.*]] = arith.constant 8 : i32
+// CHECK: %[[EMPTY:.*]] = tensor.empty() : tensor<7xi32>
+// CHECK: linalg.fill ins(%[[C0]] : i32) outs(%[[EMPTY]] : tensor<7xi32>) -> tensor<7xi32>
+// CHECK: %[[RESULT:.*]] = linalg.generic {
+// CHECK:    indexing_maps = [#[[MAP0]], #[[MAP1]]],
+// CHECK:    iterator_types = ["parallel", "reduction"]}
+// CHECK:    ^bb0(%[[IN:.*]]: i8, %[[OUT:.*]]: i32):
+// CHECK:      %[[IOTA:.*]] = linalg.index 1 : index
+// CHECK:      %[[IOTA_CASTED:.*]] = arith.index_cast %[[IOTA]] : index to i32
+// CHECK:      %[[AMT:.*]] = arith.muli %[[IOTA_CASTED]], %[[C8]] : i3
+// CHECK:      %[[EXT:.*]] = arith.extui %[[IN]] : i8 to i32
+// CHECK:      %[[SHIFT:.*]] = arith.shli %[[EXT]], %[[AMT]] : i32
+// CHECK:      %[[OR:.*]] = arith.ori %[[SHIFT]], %[[OUT]] : i32
+// CHECK:      linalg.yield %[[OR]] : i32
+// CHECK: } -> tensor<7xi32>
+// CHECK: return %[[RESULT]] : tensor<7xi32>
+

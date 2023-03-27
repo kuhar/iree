@@ -1129,11 +1129,11 @@ class TransposeOpToTransposeConverter
 };
 
 class BitcastConvertConverter
-    : public OpConversionPattern<mhlo::BitcastConvertOp> {
+    : public OpConversionPattern<stablehlo::BitcastConvertOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult matchAndRewrite(
-      mhlo::BitcastConvertOp op, OpAdaptor adaptor,
+      stablehlo::BitcastConvertOp op, OpAdaptor adaptor,
       ConversionPatternRewriter& rewriter) const final {
     if (!verifyHloOpBufferOrTensorSemantics(op)) return failure();
 
