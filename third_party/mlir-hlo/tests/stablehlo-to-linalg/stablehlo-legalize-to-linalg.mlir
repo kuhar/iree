@@ -1096,3 +1096,671 @@ func.func @concatenate_unsigned(%a: tensor<?x?xui32>, %b: tensor<?x?xui32>, %c: 
     } : (tensor<?x?xui32>, tensor<?x?xui32>, tensor<?x?xui32>) -> tensor<?x?xui32>
     func.return %concat : tensor<?x?xui32>
 }
+
+// -----
+
+func.func @rng_uniform_2d(%min: tensor<f32>, %max: tensor<f32>) -> tensor<3x3xf32>
+{
+        %shape = arith.constant dense<[3, 3]>  : tensor<2xi32>
+        %0 = "stablehlo.rng"(%min, %max, %shape) {rng_distribution = #stablehlo<rng_distribution UNIFORM>} : (tensor<f32>, tensor<f32>, tensor<2xi32>) -> tensor<3x3xf32>
+        func.return %0 : tensor<3x3xf32>
+}
+// CHECK-LABEL: func @rng_uniform_2d
+// CHECK-DAG:  ^{{.*}}(%[[MIN:.+]]: f32, %[[MAX:.+]]: f32, %[[OUT:.+]]: f32
+// CHECK-DAG:    %[[CST0:.+]] = arith.constant 1103515245 : i32
+// CHECK-DAG:    %[[CST1:.+]] = arith.constant 12345 : i32
+// CHECK-DAG:    %[[CST2:.+]] = arith.constant 2.32830644E-10 : f32
+// CHECK-DAG:  %[[IDX0:.+]] = linalg.index 0 : index
+// CHECK-DAG:  %[[IDX0_CAST:.+]] = arith.index_cast %[[IDX0]] : index to i32
+// CHECK-DAG:  %[[IDX1:.+]] = linalg.index 1 : index
+// CHECK-DAG:  %[[IDX1_CAST:.+]] = arith.index_cast %[[IDX1]] : index to i32
+// CHECK-DAG:    %[[VAL1:.+]] = arith.muli %[[IDX0_CAST]], %[[CST0]] : i32
+// CHECK-DAG:    %[[VAL2:.+]] = arith.addi %[[VAL1]], %[[CST1]] : i32
+// CHECK-DAG:    %[[VAL3:.+]] = arith.addi %[[IDX1_CAST]], %[[VAL2]] : i32
+// CHECK-DAG:    %[[VAL4:.+]] = arith.muli %[[VAL3]], %[[CST0]] : i32
+// CHECK-DAG:    %[[VAL5:.+]] = arith.addi %[[VAL4]], %[[CST1]] : i32
+// CHECK-DAG:    %[[DIFF:.+]] = arith.subf %[[MAX]], %[[MIN]] : f32
+// CHECK-DAG:    %[[FACT:.+]] = arith.mulf %[[DIFF]], %[[CST2]] : f32
+// CHECK-DAG:    %[[VAL5_CAST:.+]] = arith.uitofp %[[VAL5]] : i32 to f32
+// CHECK-DAG:    %[[VAL6:.+]] = arith.mulf %[[VAL5_CAST]], %[[FACT]] : f32
+// CHECK-DAG:    %[[VAL7:.+]] = arith.addf %[[VAL6]], %[[MIN]] : f32
+// CHECK-NEXT:   linalg.yield %[[VAL7]] : f32
+// CHECK-NEXT: -> tensor<3x3xf32>
+
+// -----
+
+func.func @rng_uniform_3d(%min: tensor<f32>, %max: tensor<f32>) -> tensor<2x2x2xf32>
+{
+        %shape = arith.constant dense<[2, 2, 2]>  : tensor<3xi32>
+        %0 = "stablehlo.rng"(%min, %max, %shape) {rng_distribution = #stablehlo<rng_distribution UNIFORM>} : (tensor<f32>, tensor<f32>, tensor<3xi32>) -> tensor<2x2x2xf32>
+        func.return %0 : tensor<2x2x2xf32>
+}
+// CHECK-LABEL: func @rng_uniform_3d
+// CHECK-DAG:  ^{{.*}}(%[[MIN:.+]]: f32, %[[MAX:.+]]: f32, %[[OUT:.+]]: f32
+// CHECK-DAG:    %[[CST0:.+]] = arith.constant 1103515245 : i32
+// CHECK-DAG:    %[[CST1:.+]] = arith.constant 12345 : i32
+// CHECK-DAG:    %[[CST2:.+]] = arith.constant 2.32830644E-10 : f32
+// CHECK-DAG:  %[[IDX0:.+]] = linalg.index 0 : index
+// CHECK-DAG:  %[[IDX0_CAST:.+]] = arith.index_cast %[[IDX0]] : index to i32
+// CHECK-DAG:  %[[IDX1:.+]] = linalg.index 1 : index
+// CHECK-DAG:  %[[IDX1_CAST:.+]] = arith.index_cast %[[IDX1]] : index to i32
+// CHECK-DAG:  %[[IDX2:.+]] = linalg.index 2 : index
+// CHECK-DAG:  %[[IDX2_CAST:.+]] = arith.index_cast %[[IDX2]] : index to i32
+// CHECK-DAG:    %[[VAL1:.+]] = arith.muli %[[IDX0_CAST]], %[[CST0]] : i32
+// CHECK-DAG:    %[[VAL2:.+]] = arith.addi %[[VAL1]], %[[CST1]] : i32
+// CHECK-DAG:    %[[VAL3:.+]] = arith.addi %[[IDX1_CAST]], %[[VAL2]] : i32
+// CHECK-DAG:    %[[VAL4:.+]] = arith.muli %[[VAL3]], %[[CST0]] : i32
+// CHECK-DAG:    %[[VAL5:.+]] = arith.addi %[[VAL4]], %[[CST1]] : i32
+// CHECK-DAG:    %[[VAL6:.+]] = arith.addi %[[IDX2_CAST]], %[[VAL5]] : i32
+// CHECK-DAG:    %[[VAL7:.+]] = arith.muli %[[VAL6]], %[[CST0]] : i32
+// CHECK-DAG:    %[[VAL8:.+]] = arith.addi %[[VAL7]], %[[CST1]] : i32
+// CHECK-DAG:    %[[DIFF:.+]] = arith.subf %[[MAX]], %[[MIN]] : f32
+// CHECK-DAG:    %[[FACT:.+]] = arith.mulf %[[DIFF]], %[[CST2]] : f32
+// CHECK-DAG:    %[[VAL8_CAST:.+]] = arith.uitofp %[[VAL8]] : i32 to f32
+// CHECK-DAG:    %[[VAL6:.+]] = arith.mulf %[[VAL8_CAST]], %[[FACT]] : f32
+// CHECK-DAG:    %[[VAL7:.+]] = arith.addf %[[VAL6]], %[[MIN]] : f32
+// CHECK-NEXT:   linalg.yield %[[VAL7]] : f32
+// CHECK-NEXT: -> tensor<2x2x2xf32>
+
+// -----
+
+func.func @rng_uniform_dynamic_1d(%min: tensor<f32>, %max: tensor<f32>, %shape: tensor<1xi32>) -> tensor<?xf32>
+{
+  %0 = "stablehlo.rng"(%min, %max, %shape) {rng_distribution = #stablehlo<rng_distribution UNIFORM>} : (tensor<f32>, tensor<f32>, tensor<1xi32>) -> tensor<?xf32>
+  func.return %0 : tensor<?xf32>
+}
+// CHECK-LABEL: func @rng_uniform_dynamic_1d
+// CHECK-DAG:    %[[C0:.+]] = arith.constant 0 : index
+// CHECK-DAG:    %[[EX:.+]] = tensor.extract %{{.*}}[%[[C0]]]
+// CHECK-DAG:    %[[IND:.+]] = arith.index_cast %[[EX]] : i32 to index
+// CHECK-DAG:    %{{.+}} = tensor.empty(%[[IND]]) : tensor<?xf32>
+// CHECK-DAG:  ^{{.*}}(%[[MIN:.+]]: f32, %[[MAX:.+]]: f32, %[[OUT:.+]]: f32
+// CHECK-DAG:    %[[CST0:.+]] = arith.constant 1103515245 : i32
+// CHECK-DAG:    %[[CST1:.+]] = arith.constant 12345 : i32
+// CHECK-DAG:    %[[CST2:.+]] = arith.constant 2.32830644E-10 : f32
+// CHECK-DAG:    %[[IDX0:.+]] = linalg.index 0 : index
+// CHECK-DAG:    %[[IDX0_CAST:.+]] = arith.index_cast %[[IDX0]] : index to i32
+// CHECK-DAG:    %[[VAL1:.+]] = arith.muli %[[IDX0_CAST]], %[[CST0]] : i32
+// CHECK-DAG:    %[[VAL2:.+]] = arith.addi %[[VAL1]], %[[CST1]] : i32
+// CHECK-DAG:    %[[DIFF:.+]] = arith.subf %[[MAX]], %[[MIN]] : f32
+// CHECK-DAG:    %[[FACT:.+]] = arith.mulf %[[DIFF]], %[[CST2]] : f32
+// CHECK-DAG:    %[[VAL2_CAST:.+]] = arith.uitofp %[[VAL2]] : i32 to f32
+// CHECK-DAG:    %[[VAL4:.+]] = arith.mulf %[[VAL2_CAST]], %[[FACT]] : f32
+// CHECK-DAG:    %[[VAL5:.+]] = arith.addf %[[VAL4]], %[[MIN]] : f32
+// CHECK-NEXT:   linalg.yield %[[VAL5]] : f32
+// CHECK-NEXT: -> tensor<?xf32>
+
+// -----
+
+// CHECK-DAG: #[[MAP0:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
+// CHECK-DAG: #[[MAP1:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3)>
+// CHECK-DAG: #[[MAP2:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)>
+// CHECK-LABEL: func @einsum_basic
+func.func @einsum_basic(%arg0: tensor<3x4x5xf32>, %arg1: tensor<3x5x6xf32>) -> tensor<3x4x6xf32> {
+  %0 = "stablehlo.einsum"(%arg0, %arg1) {einsum_config = "ijk,ikm->ijm", someattr}: (tensor<3x4x5xf32>, tensor<3x5x6xf32>) -> tensor<3x4x6xf32>
+  func.return %0 : tensor<3x4x6xf32>
+}
+// CHECK-SAME:  (%[[LHS:.*]]: tensor<3x4x5xf32>, %[[RHS:.*]]: tensor<3x5x6xf32>)
+// CHECK-DAG: %[[INIT:.*]] = tensor.empty() : tensor<3x4x6xf32>
+// CHECK-DAG: %[[ZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%[[ZERO]]{{.*}}outs(%[[INIT]]
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "reduction", "parallel"]
+// CHECK-SAME: ins(%[[LHS]], %[[RHS]] : tensor<3x4x5xf32>, tensor<3x5x6xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<3x4x6xf32>)
+// CHECK-SAME: {someattr}
+// CHECK: ^bb0(%[[LHS_:.*]]: f32, %[[RHS_:.*]]: f32, %[[OUT_:.*]]: f32):
+// CHECK:   %[[MUL:.*]] = arith.mulf %[[LHS_]], %[[RHS_]] : f32
+// CHECK:   %[[RES:.*]] = arith.addf %[[OUT_]], %[[MUL]] : f32
+// CHECK:   linalg.yield %[[RES]]
+
+// -----
+
+// CHECK: #[[MAP0:.+]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+// CHECK: func @einsum_pointwisemul
+func.func @einsum_pointwisemul(%arg0: tensor<3x4x5xf32>, %arg1: tensor<3x4x5xf32>) -> tensor<3x4x5xf32> {
+  %0 = "stablehlo.einsum"(%arg0, %arg1) {einsum_config = "abc,abc->abc"} : (tensor<3x4x5xf32>, tensor<3x4x5xf32>) -> tensor<3x4x5xf32>
+  func.return %0 : tensor<3x4x5xf32>
+}
+// CHECK-SAME:  (%[[LHS:.*]]: tensor<3x4x5xf32>, %[[RHS:.*]]: tensor<3x4x5xf32>)
+// CHECK: tensor.empty() : tensor<3x4x5xf32>
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP0]], #[[MAP0]]]
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "parallel"]
+// CHECK-SAME: ins(%[[LHS]], %[[RHS]] : tensor<3x4x5xf32>, tensor<3x4x5xf32>)
+// CHECK-SAME: outs(%[[DST:.+]] : tensor<3x4x5xf32>)
+// CHECK: ^bb0(%[[LHS_:.*]]: f32, %[[RHS_:.*]]: f32, %[[OUT_:.*]]: f32):
+// CHECK:   %[[RES:.*]] = arith.mulf %[[LHS_]], %[[RHS_]] : f32
+// CHECK:   linalg.yield %[[RES]]
+
+// -----
+
+// CHECK-DAG: #[[MAP0:.+]] = affine_map<(d0, d1, d2) -> (d0, d1)>
+// CHECK-DAG: #[[MAP1:.+]] = affine_map<(d0, d1, d2) -> (d1, d2)>
+// CHECK-DAG: #[[MAP2:.+]] = affine_map<(d0, d1, d2) -> (d0, d2)>
+// CHECK: func @einsum_matmul
+func.func @einsum_matmul(%arg0: tensor<7x9xf32>, %arg1: tensor<9x5xf32>) -> tensor<7x5xf32> {
+  %0 = "stablehlo.einsum"(%arg0, %arg1) {einsum_config = "ae,ed->ad"}: (tensor<7x9xf32>, tensor<9x5xf32>) -> tensor<7x5xf32>
+  func.return %0 : tensor<7x5xf32>
+}
+// CHECK-SAME:  (%[[LHS:.*]]: tensor<7x9xf32>, %[[RHS:.*]]: tensor<9x5xf32>)
+// CHECK-DAG: %[[INIT:.*]] = tensor.empty() : tensor<7x5xf32>
+// CHECK-DAG: %[[ZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%[[ZERO]]{{.*}}outs(%[[INIT]]
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// CHECK-SAME: iterator_types = ["parallel", "reduction", "parallel"]
+// CHECK-SAME: ins(%[[LHS]], %[[RHS]] : tensor<7x9xf32>, tensor<9x5xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<7x5xf32>)
+// CHECK: ^bb0(%[[LHS_:.*]]: f32, %[[RHS_:.*]]: f32, %[[OUT_:.*]]: f32):
+// CHECK:   %[[MUL:.*]] = arith.mulf %[[LHS_]], %[[RHS_]] : f32
+// CHECK:   %[[RES:.*]] = arith.addf %[[OUT_]], %[[MUL]] : f32
+// CHECK:   linalg.yield %[[RES]]
+
+// -----
+
+// CHECK-DAG: #[[MAP0:.+]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4)>
+// CHECK-DAG: #[[MAP1:.+]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d4, d5)>
+// CHECK-DAG: #[[MAP2:.+]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d5)>
+// CHECK: func @einsum_broadcast4
+func.func @einsum_broadcast4(%arg0: tensor<3x4x5x6x7xf32>, %arg1: tensor<7x8xf32>) -> tensor<3x4x5x6x8xf32> {
+  %0 = "stablehlo.einsum"(%arg0, %arg1) {einsum_config = "abcdh,hg->abcdg"}: (tensor<3x4x5x6x7xf32>, tensor<7x8xf32>) -> tensor<3x4x5x6x8xf32>
+  func.return %0 : tensor<3x4x5x6x8xf32>
+}
+// CHECK-SAME:  (%[[LHS:.*]]: tensor<3x4x5x6x7xf32>, %[[RHS:.*]]: tensor<7x8xf32>)
+// CHECK-DAG: %[[INIT:.*]] = tensor.empty() : tensor<3x4x5x6x8xf32>
+// CHECK-DAG: %[[ZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%[[ZERO]]{{.*}}outs(%[[INIT]]
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "parallel"]
+// CHECK-SAME: ins(%[[LHS]], %[[RHS]] : tensor<3x4x5x6x7xf32>, tensor<7x8xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<3x4x5x6x8xf32>)
+// CHECK: ^bb0(%[[LHS_:.*]]: f32, %[[RHS_:.*]]: f32, %[[OUT_:.*]]: f32):
+// CHECK:   %[[MUL:.*]] = arith.mulf %[[LHS_]], %[[RHS_]] : f32
+// CHECK:   %[[RES:.*]] = arith.addf %[[OUT_]], %[[MUL]] : f32
+// CHECK:   linalg.yield %[[RES]]
+
+// -----
+
+// CHECK-DAG: #[[MAP0:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
+// CHECK-DAG: #[[MAP1:.+]] = affine_map<(d0, d1, d2, d3) -> (d2, d3)>
+// CHECK-DAG: #[[MAP2:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)>
+// CHECK: func @einsum_ellipsis
+func.func @einsum_ellipsis(%arg0: tensor<1x512x128xf32>, %arg1: tensor<128x256xf32>) -> tensor<1x512x256xf32> {
+  %0 = "stablehlo.einsum"(%arg0, %arg1) {einsum_config = "...x,xy->...y"} : (tensor<1x512x128xf32>, tensor<128x256xf32>) -> tensor<1x512x256xf32>
+  func.return %0 : tensor<1x512x256xf32>
+}
+// CHECK-SAME:  (%[[LHS:.*]]: tensor<1x512x128xf32>, %[[RHS:.*]]: tensor<128x256xf32>)
+// CHECK-DAG: %[[INIT:.*]] = tensor.empty() : tensor<1x512x256xf32>
+// CHECK-DAG: %[[ZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%[[ZERO]]{{.*}}outs(%[[INIT]]
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "reduction", "parallel"]
+// CHECK-SAME: ins(%[[LHS]], %[[RHS]] : tensor<1x512x128xf32>, tensor<128x256xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<1x512x256xf32>)
+// CHECK: ^bb0(%[[LHS_:.*]]: f32, %[[RHS_:.*]]: f32, %[[OUT_:.*]]: f32):
+// CHECK:   %[[MUL:.*]] = arith.mulf %[[LHS_]], %[[RHS_]] : f32
+// CHECK:   %[[RES:.*]] = arith.addf %[[OUT_]], %[[MUL]] : f32
+// CHECK:   linalg.yield %[[RES]]
+
+// -----
+
+// CHECK-DAG: #[[MAP0:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
+// CHECK-DAG: #[[MAP1:.+]] = affine_map<(d0, d1, d2, d3) -> (d2, d3)>
+// CHECK-DAG: #[[MAP2:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)>
+// CHECK: func @einsum_dynamic_size_broadcast_dot
+func.func @einsum_dynamic_size_broadcast_dot(%arg0: tensor<?x?x4xf32>, %arg1: tensor<4x?xf32>) -> tensor<?x?x?xf32> {
+  %0 = "stablehlo.einsum"(%arg0, %arg1) {einsum_config = "abc,cd->abd"} : (tensor<?x?x4xf32>, tensor<4x?xf32>) -> tensor<?x?x?xf32>
+  func.return %0 : tensor<?x?x?xf32>
+}
+// CHECK-SAME:  (%[[LHS:.*]]: tensor<?x?x4xf32>, %[[RHS:.*]]: tensor<4x?xf32>)
+// CHECK-DAG: %[[C0:.+]] = arith.constant 0 : index
+// CHECK-DAG: %[[C1:.+]] = arith.constant 1 : index
+// CHECK-DAG: %[[ZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[DIM0:.+]] = tensor.dim %[[LHS]], %[[C0]] : tensor<?x?x4xf32>
+// CHECK: %[[DIM1:.+]] = tensor.dim %[[LHS]], %[[C1]] : tensor<?x?x4xf32>
+// CHECK: %[[DIM2:.+]] = tensor.dim %[[RHS]], %[[C1:.+]] : tensor<4x?xf32>
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[DIM0]], %[[DIM1]], %[[DIM2]]) : tensor<?x?x?xf32>
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%[[ZERO]]{{.*}}outs(%[[INIT]]
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
+// CHECK-SAME: iterator_types = ["parallel", "parallel", "reduction", "parallel"]
+// CHECK-SAME: ins(%[[LHS]], %[[RHS]] : tensor<?x?x4xf32>, tensor<4x?xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<?x?x?xf32>)
+// CHECK: ^bb0(%[[LHS_:.*]]: f32, %[[RHS_:.*]]: f32, %[[OUT_:.*]]: f32):
+// CHECK:   %[[MUL:.*]] = arith.mulf %[[LHS_]], %[[RHS_]] : f32
+// CHECK:   %[[RES:.*]] = arith.addf %[[OUT_]], %[[MUL]] : f32
+// CHECK:   linalg.yield %[[RES]]
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d4, d0, 0)>
+// CHECK-DAG: #[[RESULT_MAP:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
+// CHECK-LABEL: func @broadcast_in_dim
+func.func @broadcast_in_dim(%operand: tensor<5x7x1xf32>) -> tensor<7x10x6x4x5xf32> {
+  %0 = "stablehlo.broadcast_in_dim"(%operand)
+         {broadcast_dimensions = dense<[4,0,2]> : tensor<3xi64>}
+         : (tensor<5x7x1xf32>) -> tensor<7x10x6x4x5xf32>
+  func.return %0 : tensor<7x10x6x4x5xf32>
+}
+// CHECK: tensor.empty() : tensor<7x10x6x4x5xf32>
+// CHECK: linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: f32, %{{.*}}: f32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast_in_dim
+// CHECK-PRIMITIVE: tensor.collapse_shape
+// CHECK-PRIMITIVE: linalg.transpose
+// CHECK-PRIMITIVE:   permutation = [1, 0]
+// CHECK-PRIMITIVE: tensor.empty() : tensor<7x10x6x4x5xf32>
+// CHECK-PRIMITIVE: linalg.broadcast
+// CHECK-PRIMITIVE:   dimensions = [1, 2, 3]
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d4, d0, 0)>
+// CHECK-DAG: #[[RESULT_MAP:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
+// CHECK-LABEL: func @broadcast_in_dim_ui32
+func.func @broadcast_in_dim_ui32(%operand: tensor<5x7x1xui32>) -> tensor<7x10x6x4x5xui32> {
+  %0 = "stablehlo.broadcast_in_dim"(%operand)
+         {broadcast_dimensions = dense<[4,0,2]> : tensor<3xi64>}
+         : (tensor<5x7x1xui32>) -> tensor<7x10x6x4x5xui32>
+  func.return %0 : tensor<7x10x6x4x5xui32>
+}
+// CHECK: builtin.unrealized_conversion_cast %{{.*}} : tensor<5x7x1xui32> to tensor<5x7x1xi32>
+// CHECK: tensor.empty() : tensor<7x10x6x4x5xi32>
+// CHECK: %[[RES:.*]] = linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: i32, %{{.*}}: i32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : i32
+// CHECK: builtin.unrealized_conversion_cast %[[RES]] : tensor<7x10x6x4x5xi32> to tensor<7x10x6x4x5xui32>
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast_in_dim_ui32
+// CHECK-PRIMITIVE: tensor.collapse_shape
+// CHECK-PRIMITIVE: linalg.transpose
+// CHECK-PRIMITIVE:   permutation = [1, 0]
+// CHECK-PRIMITIVE: tensor.empty() : tensor<7x10x6x4x5xi32>
+// CHECK-PRIMITIVE: %[[RES:.*]] = linalg.broadcast
+// CHECK-PRIMITIVE:   dimensions = [1, 2, 3]
+// CHECK-PRIMITIVE: builtin.unrealized_conversion_cast %[[RES]] : tensor<7x10x6x4x5xi32> to tensor<7x10x6x4x5xui32>
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.+]] = affine_map<(d0, d1) -> (d0)>
+// CHECK-DAG: #[[RESULT_MAP:.+]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @broadcast_in_dim_with_one_to_one
+func.func @broadcast_in_dim_with_one_to_one(
+         %operand: tensor<1xf32>) -> tensor<1x5xf32> {
+  %0 = "stablehlo.broadcast_in_dim"(%operand)
+         {broadcast_dimensions = dense<[0]> : tensor<1xi64>}
+         : (tensor<1xf32>) -> tensor<1x5xf32>
+  func.return %0 : tensor<1x5xf32>
+}
+// CHECK: tensor.empty() : tensor<1x5xf32>
+// CHECK: linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: f32, %{{.*}}: f32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast_in_dim_with_one_to_one
+// CHECK-PRIMITIVE-NOT: tensor.collapse_shape
+// CHECK-PRIMITIVE-NOT: linalg.transpose
+// CHECK-PRIMITIVE:     linalg.broadcast
+// CHECK-PRIMITIVE:       dimensions = [1]
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.+]] = affine_map<(d0, d1, d2, d3) -> (d2, d0, d1)>
+// CHECK-DAG: #[[RESULT_MAP:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK-LABEL: func @broadcast_in_dim_with_transpose
+func.func @broadcast_in_dim_with_transpose(
+         %operand: tensor<2x3x4xf32>) -> tensor<3x4x2x5xf32> {
+  %0 = "stablehlo.broadcast_in_dim"(%operand)
+         {broadcast_dimensions = dense<[2, 0, 1]> : tensor<3xi64>}
+         : (tensor<2x3x4xf32>) -> tensor<3x4x2x5xf32>
+  func.return %0 : tensor<3x4x2x5xf32>
+}
+// CHECK: tensor.empty() : tensor<3x4x2x5xf32>
+// CHECK: linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: f32, %{{.*}}: f32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast_in_dim_with_transpose
+// CHECK-PRIMITIVE: tensor.empty() : tensor<3x4x2xf32>
+// CHECK-PRIMITIVE: linalg.transpose
+// CHECK-PRIMITIVE:   permutation = [1, 2, 0]
+// CHECK-PRIMITIVE: tensor.empty() : tensor<3x4x2x5xf32>
+// CHECK-PRIMITIVE: linalg.broadcast
+// CHECK-PRIMITIVE:   dimensions = [3]
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.*]] = affine_map<(d0, d1, d2) -> ()>
+// CHECK-DAG: #[[RESULT_MAP:.*]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+// CHECK-LABEL: func @broadcast_in_dim_scalar
+func.func @broadcast_in_dim_scalar(%operand: tensor<f32>) -> tensor<7x10x6xf32> {
+  %0 = "stablehlo.broadcast_in_dim"(%operand)
+        {broadcast_dimensions = dense<[]> : tensor<0xi64>}
+        : (tensor<f32>) -> tensor<7x10x6xf32>
+  func.return %0 : tensor<7x10x6xf32>
+}
+// CHECK: tensor.empty() : tensor<7x10x6xf32>
+// CHECK: linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: f32, %{{.*}}: f32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast_in_dim_scalar
+// CHECK-PRIMITIVE: tensor.empty() : tensor<7x10x6xf32>
+// CHECK-PRIMITIVE: linalg.broadcast
+// CHECK-PRIMITIVE:   dimensions = [0, 1, 2]
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.+]] = affine_map<(d0, d1, d2) -> ()>
+// CHECK-DAG: #[[RESULT_MAP:.+]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+// CHECK-LABEL: func @broadcast_scalar
+func.func @broadcast_scalar(%arg: tensor<f32>) -> tensor<4x2x1xf32> {
+  %0 = "stablehlo.broadcast"(%arg) {broadcast_sizes = dense<[4, 2, 1]> : tensor<3xi64>} : (tensor<f32>) -> tensor<4x2x1xf32>
+  func.return %0: tensor<4x2x1xf32>
+}
+// CHECK: tensor.empty() : tensor<4x2x1xf32>
+// CHECK: linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: f32, %{{.*}}: f32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast_scalar
+// CHECK-PRIMITIVE: tensor.empty() : tensor<4x2x1xf32>
+// CHECK-PRIMITIVE: linalg.broadcast
+// CHECK-PRIMITIVE-SAME: ins(
+// CHECK-PRIMITIVE-SAME: outs(
+// CHECK-PRIMITIVE-SAME: dimensions = [0, 1, 2]
+
+// -----
+
+// CHECK-DAG: #[[OPERAND_MAP:.+]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d3, d4, d5)>
+// CHECK-DAG: #[[RESULT_MAP:.+]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>
+// CHECK-LABEL: func @broadcast
+func.func @broadcast(%arg: tensor<4x?x16xf32>) -> tensor<4x2x1x4x?x16xf32> {
+  %0 = "stablehlo.broadcast"(%arg) {broadcast_sizes = dense<[4, 2, 1]> : tensor<3xi64>} : (tensor<4x?x16xf32>) -> tensor<4x2x1x4x?x16xf32>
+  func.return %0: tensor<4x2x1x4x?x16xf32>
+}
+// CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[DIM:.*]] = tensor.dim %{{.*}}, %[[C1]] : tensor<4x?x16xf32>
+// CHECK: %{{.*}} = tensor.empty(%[[DIM]]) : tensor<4x2x1x4x?x16xf32>
+// CHECK: linalg.generic {{{.*}}indexing_maps = [#[[OPERAND_MAP]], #[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%[[OPERAND:.*]]: f32, %{{.*}}: f32):
+// CHECK-NEXT:   linalg.yield %[[OPERAND]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @broadcast
+// CHECK-PRIMITIVE-DAG: %[[C1:.*]] = arith.constant 1 : index
+// CHECK-PRIMITIVE: %[[DIM:.*]] = tensor.dim %{{.*}}, %[[C1]] : tensor<4x?x16xf32>
+// CHECK-PRIMITIVE: %{{.*}} = tensor.empty(%[[DIM]]) : tensor<4x2x1x4x?x16xf32>
+// CHECK-PRIMITIVE: linalg.broadcast
+// CHECK-PRIMITIVE:   dimensions = [0, 1, 2]
+
+// -----
+
+// CHECK: #[[RESULT_MAP:.*]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @iota_f32
+func.func @iota_f32() -> tensor<7x10xf32> {
+  %result = "stablehlo.iota"() {iota_dimension = 1 : i64, someattr} : () -> (tensor<7x10xf32>)
+  func.return %result : tensor<7x10xf32>
+}
+// CHECK: tensor.empty
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[RESULT_MAP]]]
+// CHECK-SAME: {someattr}
+// CHECK-NEXT: ^bb0(%{{.*}}: f32):
+// CHECK-NEXT:   %[[INDEX:.*]] = linalg.index 1
+// CHECK-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i32
+// CHECK-NEXT:   %[[FLOAT_CAST:.*]] = arith.sitofp %[[INT_CAST]] : i32 to f32
+// CHECK-NEXT:   linalg.yield %[[FLOAT_CAST]] : f32
+
+// CHECK-PRIMITIVE-LABEL: func @iota_f32
+// CHECK-PRIMITIVE: %[[EMPTY:.*]] = tensor.empty()
+// CHECK-PRIMITIVE: linalg.map outs(%[[EMPTY]] : tensor<7x10xf32>
+// CHECK-PRIMITIVE-SAME: {someattr}
+// CHECK-PRIMITIVE:        %[[INDEX:.*]] = linalg.index 1
+// CHECK-PRIMITIVE-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i64
+// CHECK-PRIMITIVE-NEXT:   %[[FLOAT_CAST:.*]] = arith.sitofp %[[INT_CAST]] : i64 to f32
+// CHECK-PRIMITIVE-NEXT:   linalg.yield %[[FLOAT_CAST]]
+
+// -----
+
+// CHECK: #[[RESULT_MAP:.*]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @iota_i32
+func.func @iota_i32() -> tensor<7x10xi32> {
+  %result = "stablehlo.iota"() {iota_dimension = 1 : i64} : () -> (tensor<7x10xi32>)
+  func.return %result : tensor<7x10xi32>
+}
+// CHECK: tensor.empty
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%{{.*}}: i32):
+// CHECK-NEXT:   %[[INDEX:.*]] = linalg.index 1
+// CHECK-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i32
+// CHECK-NEXT:   linalg.yield %[[INT_CAST]] : i32
+
+// -----
+
+// CHECK: #[[RESULT_MAP:.*]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @iota_ui32
+func.func @iota_ui32() -> tensor<7x10xui32> {
+  %result = "stablehlo.iota"() {iota_dimension = 1 : i64} : () -> (tensor<7x10xui32>)
+  func.return %result : tensor<7x10xui32>
+}
+// CHECK: tensor.empty
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%{{.*}}: i32):
+// CHECK-NEXT:   %[[INDEX:.*]] = linalg.index 1
+// CHECK-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i32
+// CHECK-NEXT:   linalg.yield %[[INT_CAST]] : i32
+// CHECK: builtin.unrealized_conversion_cast %{{.*}} : tensor<7x10xi32> to tensor<7x10xui32>
+
+// -----
+
+// CHECK: #[[RESULT_MAP:.*]] = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @iota_complexf32
+func.func @iota_complexf32() -> tensor<7x10xcomplex<f32>> {
+  %result = "stablehlo.iota"() {iota_dimension = 1 : i64} : () -> (tensor<7x10xcomplex<f32>>)
+  func.return %result : tensor<7x10xcomplex<f32>>
+}
+// CHECK-DAG:    %[[ZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: tensor.empty
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%{{.*}}: complex<f32>):
+// CHECK-NEXT:   %[[INDEX:.*]] = linalg.index 1
+// CHECK-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i32
+// CHECK-NEXT:   %[[FLOAT_CAST:.*]] = arith.sitofp %[[INT_CAST]] : i32 to f32
+// CHECK-NEXT:   %[[COMPLEX_CAST:.*]] = complex.create %[[FLOAT_CAST]], %[[ZERO]] : complex<f32>
+// CHECK-NEXT:   linalg.yield %[[COMPLEX_CAST]] : complex<f32>
+
+// -----
+
+// CHECK: #[[RESULT_MAP:.*]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+// CHECK-LABEL: func @dynamic_iota_f32
+// CHECK-SAME: %[[SHAPE:.*]]: tensor<?xi32>
+func.func @dynamic_iota_f32(%shape: tensor<?xi32>) -> tensor<?x?x8xf32> {
+  %result = "stablehlo.dynamic_iota"(%shape) {iota_dimension = 1 : i64} : (tensor<?xi32>) -> (tensor<?x?x8xf32>)
+  func.return %result : tensor<?x?x8xf32>
+}
+// CHECK: %[[V1:.*]] = tensor.extract %[[SHAPE]][%c0]
+// CHECK: %[[I1:.*]] = arith.index_cast %[[V1]] : i32 to index
+// CHECK: %[[V2:.*]] = tensor.extract %[[SHAPE]][%c1]
+// CHECK: %[[I2:.*]] = arith.index_cast %[[V2]] : i32 to index
+// CHECK: tensor.empty(%[[I1]], %[[I2]]) : tensor<?x?x8xf32>
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%{{.*}}: f32):
+// CHECK-NEXT:   %[[INDEX:.*]] = linalg.index 1
+// CHECK-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i32
+// CHECK-NEXT:   %[[FLOAT_CAST:.*]] = arith.sitofp %[[INT_CAST]] : i32 to f32
+// CHECK-NEXT:   linalg.yield %[[FLOAT_CAST]] : f32
+
+// -----
+
+// CHECK: #[[RESULT_MAP:.*]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+// CHECK-LABEL: func @dyanmic_iota_ui32
+// CHECK-SAME: %[[SHAPE:.*]]: tensor<?xi32>
+func.func @dyanmic_iota_ui32(%shape: tensor<?xi32>) -> tensor<?x?x8xui32> {
+  %result = "stablehlo.dynamic_iota"(%shape) {iota_dimension = 1 : i64} : (tensor<?xi32>) -> (tensor<?x?x8xui32>)
+  func.return %result : tensor<?x?x8xui32>
+}
+// CHECK: %[[V1:.*]] = tensor.extract %[[SHAPE]][%c0]
+// CHECK: %[[I1:.*]] = arith.index_cast %[[V1]] : i32 to index
+// CHECK: %[[V2:.*]] = tensor.extract %[[SHAPE]][%c1]
+// CHECK: %[[I2:.*]] = arith.index_cast %[[V2]] : i32 to index
+// CHECK: tensor.empty(%[[I1]], %[[I2]]) : tensor<?x?x8xi32>
+// CHECK: linalg.generic
+// CHECK-SAME: indexing_maps = [#[[RESULT_MAP]]]
+// CHECK-NEXT: ^bb0(%{{.*}}: i32):
+// CHECK-NEXT:   %[[INDEX:.*]] = linalg.index 1
+// CHECK-NEXT:   %[[INT_CAST:.*]] = arith.index_cast %[[INDEX]] : index to i32
+// CHECK-NEXT:   linalg.yield %[[FLOAT_CAST]] : i32
+// CHECK: builtin.unrealized_conversion_cast %{{.*}} : tensor<?x?x8xi32> to tensor<?x?x8xui32>
+
+// -----
+
+func.func @map_mixed(%arg0: tensor<?xf32>,
+                     %arg1: tensor<4xf32>) -> tensor<?xf32> {
+  %0 = "stablehlo.map"(%arg0, %arg1) ({
+  ^bb0(%arg2: tensor<f32>, %arg3: tensor<f32>):
+    %1 = stablehlo.add %arg2, %arg3 : tensor<f32>
+    "stablehlo.return"(%1) : (tensor<f32>) -> ()
+  }) {dimensions = dense<0> : tensor<1xi64>}
+  : (tensor<?xf32>, tensor<4xf32>) -> tensor<?xf32>
+  func.return %0 : tensor<?xf32>
+}
+
+// CHECK-LABEL: @map_mixed
+// CHECK: linalg.generic
+
+// CHECK-PRIMITIVE-LABEL: @map_mixed
+// CHECK-PRIMITIVE: linalg.map
+
+// -----
+
+func.func @map_one_arg(%arg0: tensor<?xf32>) -> tensor<?xf32> {
+  %0 = "stablehlo.map"(%arg0) ({
+  ^bb0(%arg2: tensor<f32>):
+    %1 = stablehlo.add %arg2, %arg2 : tensor<f32>
+    "stablehlo.return"(%1) : (tensor<f32>) -> ()
+  }) {dimensions = dense<0> : tensor<1xi64>}
+  : (tensor<?xf32>) -> tensor<?xf32>
+  func.return %0 : tensor<?xf32>
+}
+
+// CHECK-LABEL: @map_one_arg
+// CHECK: linalg.generic
+
+// CHECK-PRIMITIVE-LABEL: @map_one_arg
+// CHECK-PRIMITIVE: linalg.map
+
+// -----
+
+// CHECK-LABEL: @reduce_add_unranked
+// CHECK-PRIMITIVE-LABEL: @reduce_add_unranked
+func.func @reduce_add_unranked(%arg0: tensor<*xi32>, %arg1: tensor<i32>) -> tensor<*xi32> {
+  %0 = "stablehlo.reduce"(%arg0, %arg1) ({
+  ^bb0(%arg3: tensor<i32>, %arg4 : tensor<i32>):
+    %1 = stablehlo.add %arg3, %arg4 : tensor<i32>
+    "stablehlo.return"(%1) : (tensor<i32>) -> ()
+  }) {dimensions = dense<1> : tensor<1xi64>, someattr} : (tensor<*xi32>, tensor<i32>) -> tensor<*xi32>
+  func.return %0 : tensor<*xi32>
+}
+// CHECK: stablehlo.reduce
+// CHECK-PRIMITIVE: stablehlo.reduce
+
+// -----
+
+func.func @reduce_dynamic_output(%arg0: tensor<5x4xi32>, %arg1: tensor<i32>) -> tensor<?xi32> {
+  %0 = "stablehlo.reduce"(%arg0, %arg1) ({
+  ^bb0(%arg3: tensor<i32>, %arg4 : tensor<i32>):
+    %1 = stablehlo.maximum %arg3, %arg4 : tensor<i32>
+    "stablehlo.return"(%1) : (tensor<i32>) -> ()
+  }) {dimensions = dense<0> : tensor<1xi64>} : (tensor<5x4xi32>, tensor<i32>) -> tensor<?xi32>
+  func.return %0 : tensor<?xi32>
+}
+
+// Regression test: just check that this lowers successfully.
+// CHECK-LABEL: @reduce_dynamic_output
+// CHECK: linalg.generic
+
+// CHECK-PRIMITIVE-LABEL: @reduce_dynamic_output
+// CHECK-PRIMITIVE: linalg.reduce
+
+// -----
+
+func.func @pad_cst(%arg0: tensor<12x4xf32>) -> tensor<18x12xf32> {
+  %0 = arith.constant dense<0.0> : tensor<f32>
+  %1 = "stablehlo.pad"(%arg0, %0) {
+    edge_padding_high = dense<[2, 3]> : tensor<2xi64>,
+    edge_padding_low = dense<[4, 5]> : tensor<2xi64>,
+    interior_padding = dense<0> : tensor<2xi64>
+  } : (tensor<12x4xf32>, tensor<f32>) -> tensor<18x12xf32>
+  func.return %1 : tensor<18x12xf32>
+}
+// CHECK-LABEL: func @pad_cst
+// CHECK-SAME:    %[[ARG0:[a-zA-Z0-9_]*]]
+//   CHECK-DAG: %[[CST:.+]] = arith.constant 0.000000e+00 : f32
+//       CHECK: tensor.pad %[[ARG0]] low[4, 5] high[2, 3]
+//       CHECK:  tensor.yield %[[CST]] : f32
+//       CHECK: } : tensor<12x4xf32> to tensor<18x12xf32>
+
+// -----
+
+func.func @pad_tensor(%arg0: tensor<12x4xf32>, %arg1: tensor<f32>) -> tensor<18x12xf32> {
+  %0 = "stablehlo.pad"(%arg0, %arg1) {
+    edge_padding_high = dense<[2, 3]> : tensor<2xi64>,
+    edge_padding_low = dense<[4, 5]> : tensor<2xi64>,
+    interior_padding = dense<0> : tensor<2xi64>
+  } : (tensor<12x4xf32>, tensor<f32>) -> tensor<18x12xf32>
+  func.return %0 : tensor<18x12xf32>
+}
+// CHECK-LABEL: func @pad_tensor
+//  CHECK-SAME:   %[[ARG0:[a-zA-Z0-9_]*]]
+//  CHECK-SAME:   %[[ARG1:[a-zA-Z0-9_]*]]
+//   CHECK-DAG:   %[[PAD:.+]] = tensor.extract %[[ARG1]][] : tensor<f32>
+//       CHECK:   tensor.pad %[[ARG0]] low[4, 5] high[2, 3]
+//       CHECK:     tensor.yield %[[PAD]] : f32
+//       CHECK:   } : tensor<12x4xf32> to tensor<18x12xf32>
+
+// -----
+
+func.func @pad_interior(%arg0: tensor<12x4xui32>, %arg1: tensor<ui32>) -> tensor<29x15xui32> {
+  %0 = arith.constant dense<0> : tensor<ui32>
+  %1 = "stablehlo.pad"(%arg0, %arg1) {
+    edge_padding_high = dense<[2, 3]> : tensor<2xi64>,
+    edge_padding_low = dense<[4, 5]> : tensor<2xi64>,
+    interior_padding = dense<[1, 1]> : tensor<2xi64>
+  } : (tensor<12x4xui32>, tensor<ui32>) -> tensor<29x15xui32>
+  func.return %1 : tensor<29x15xui32>
+}
+// CHECK-LABEL: func @pad_interior
+// CHECK-SAME:    %[[ARG0:[a-zA-Z0-9_]*]]
+//  CHECK-SAME:   %[[ARG1:[a-zA-Z0-9_]*]]
+//   CHECK-DAG: %[[CAST0:.+]] = builtin.unrealized_conversion_cast %[[ARG0]] : tensor<12x4xui32> to tensor<12x4xi32>
+//   CHECK-DAG: %[[CAST1:.+]] = builtin.unrealized_conversion_cast %[[ARG1]] : tensor<ui32> to tensor<i32>
+//   CHECK-DAG: %[[PAD:.+]] = tensor.extract %[[CAST1]][] : tensor<i32>
+//       CHECK: %[[INIT:.+]] = tensor.empty() : tensor<29x15xi32>
+//       CHECK: %[[FILL:.+]] = linalg.fill ins(%[[PAD]] : i32) outs(%[[INIT]] : tensor<29x15xi32>) -> tensor<29x15xi32>
+//       CHECK: %[[INSERT:.+]] = tensor.insert_slice %[[CAST0]] into %[[FILL]][4, 5] [12, 4] [2, 2] : tensor<12x4xi32> into tensor<29x15xi32>
+
+// -----
+
+func.func @pad_interior_negative(%arg0: tensor<12x4xui32>, %arg1: tensor<ui32>) -> tensor<25x9xui32> {
+  %0 = arith.constant dense<0> : tensor<ui32>
+  %1 = "stablehlo.pad"(%arg0, %arg1) {
+    edge_padding_high = dense<[-2, 3]> : tensor<2xi64>,
+    edge_padding_low = dense<[4, -1]> : tensor<2xi64>,
+    interior_padding = dense<[1, 1]> : tensor<2xi64>
+  } : (tensor<12x4xui32>, tensor<ui32>) -> tensor<25x9xui32>
+  func.return %1 : tensor<25x9xui32>
+}
+// CHECK-LABEL: func @pad_interior_negative
+//       CHECK: %[[PAD:.*]] = tensor.insert_slice %{{.+}} into %{{.+}}[4, 0] [12, 4] [2, 2] : tensor<12x4xi32> into tensor<29x10xi32>
+//       CHECK: %[[SLICE:.*]] = tensor.extract_slice %[[PAD]][0, 1] [25, 9] [1, 1] : tensor<29x10xi32> to tensor<25x9xi32>
+
