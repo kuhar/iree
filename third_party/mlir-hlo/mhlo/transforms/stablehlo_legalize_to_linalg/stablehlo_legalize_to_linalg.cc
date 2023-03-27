@@ -4310,10 +4310,19 @@ class PointwiseToLinalgMapConverter : public OpConversionPattern<OpTy> {
 
     auto mapOp = rewriter.create<linalg::MapOp>(
         loc, mappedInputs, emptyTensor,
-        [&](OpBuilder& b, Location loc, ValueRange args) {
-          Value innerResult = mhlo::MhloOpToStdScalarOp::mapOp(
-              op, getElementTypeOrSelf(emptyTensor),
-              interleaveScalarAndBlockArgs(scalarInputs, args), &b);
+        [&](OpBuilder &b, Location loc, ValueRange args) {
+          Value innerResult;
+          if (llvm::is_contained({"mhlo", "chlo"},
+                                 op->getDialect()->getNamespace())) {
+            innerResult = mhlo::MhloOpToStdScalarOp::mapOp(
+                op, getElementTypeOrSelf(emptyTensor),
+                interleaveScalarAndBlockArgs(scalarInputs, args), &b);
+          } else {
+            innerResult = stablehlo::StableHloOpToStdScalarOp::mapOp(
+                op, getElementTypeOrSelf(emptyTensor),
+                interleaveScalarAndBlockArgs(scalarInputs, args), &b);
+          }
+
           b.create<linalg::YieldOp>(loc, innerResult);
         },
         linalg::getPrunedAttributeList(op));
@@ -4463,7 +4472,7 @@ void populateStableHloToLinalgConversionPattern(MLIRContext* context,
       IotaToMapConverter<mhlo::DynamicIotaOp>,
       MapOpToMapConverter,
       PointwiseToLinalgMapConverter<mhlo::AbsOp>,
-      PointwiseToLinalgMapConverter<mhlo::AddOp>,
+      PointwiseToLinalgMapConverter<stablehlo::AddOp>,
       PointwiseToLinalgMapConverter<mhlo::AndOp>,
       PointwiseToLinalgMapConverter<mhlo::Atan2Op>,
       PointwiseToLinalgMapConverter<mhlo::BitcastConvertOp>,
@@ -4522,7 +4531,7 @@ void populateStableHloToLinalgConversionPattern(MLIRContext* context,
       HloDynamicBroadcastInDimConverter,
       MapOpToGenericConverter,
       PointwiseToLinalgConverter<mhlo::AbsOp>,
-      PointwiseToLinalgConverter<mhlo::AddOp>,
+      PointwiseToLinalgConverter<stablehlo::AddOp>,
       PointwiseToLinalgConverter<mhlo::AndOp>,
       PointwiseToLinalgConverter<mhlo::Atan2Op>,
       PointwiseToLinalgConverter<mhlo::BitcastConvertOp>,

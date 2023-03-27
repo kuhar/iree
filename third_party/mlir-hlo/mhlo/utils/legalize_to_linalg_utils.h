@@ -24,10 +24,8 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringSet.h"
 #include "mhlo/transforms/map_mhlo_to_scalar_op.h"
+#include "mhlo/transforms/map_stablehlo_to_scalar_op.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -44,6 +42,9 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringSet.h"
 
 namespace mlir {
 namespace mhlo {
@@ -160,13 +161,20 @@ class PointwiseToLinalgConverter : public OpConversionPattern<OpTy> {
     auto linalgOp = rewriter.create<linalg::GenericOp>(
         loc, resultTy ? *resultTy : TypeRange{}, inputs, output, maps,
         getNParallelLoopsAttrs(nloops),
-        [&](OpBuilder& nestedBuilder, Location /*nested_loc*/,
+        [&](OpBuilder &nestedBuilder, Location /*nested_loc*/,
             ValueRange args) {
           Type innerResultTy = getElementTypeOrSelf(output);
           auto argvec = llvm::to_vector<2>(args.take_front(inputs.size()));
           auto semiring = preSparsify(op, argvec, innerResultTy, &rewriter);
-          Value innerResult = mhlo::MhloOpToStdScalarOp::mapOp(
-              op, innerResultTy, argvec, &rewriter);
+          Value innerResult;
+          if (llvm::is_contained({"mhlo", "chlo"},
+                                 op->getDialect()->getNamespace())) {
+            innerResult = mhlo::MhloOpToStdScalarOp::mapOp(op, innerResultTy,
+                                                           argvec, &rewriter);
+          } else {
+            innerResult = stablehlo::StableHloOpToStdScalarOp::mapOp(
+                op, innerResultTy, argvec, &rewriter);
+          }
           if (innerResult == nullptr) {
             failed = true;
           } else {
