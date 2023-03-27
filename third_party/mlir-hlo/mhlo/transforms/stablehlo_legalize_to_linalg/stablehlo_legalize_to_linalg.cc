@@ -4347,12 +4347,12 @@ class PointwiseToLinalgMapConverter : public OpConversionPattern<OpTy> {
 };
 
 class SetDimensionSizeConverter
-    : public OpConversionPattern<mhlo::SetDimensionSizeOp> {
+    : public OpConversionPattern<stablehlo::SetDimensionSizeOp> {
  public:
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult matchAndRewrite(
-      mhlo::SetDimensionSizeOp setDimensionSizeOp, OpAdaptor adaptor,
+      stablehlo::SetDimensionSizeOp setDimensionSizeOp, OpAdaptor adaptor,
       ConversionPatternRewriter& rewriter) const final {
     // We can lower SetDimensionSize to tensor extract. This turns into a
     // regular dynamic shape. Note that the bounds annotation is still around
