@@ -1534,12 +1534,12 @@ class IotaToMapConverter : public OpConversionPattern<OpTy> {
   }
 };
 
-/// Converts mhlo.concatenate operation to a linalg.generic op.
-struct ConcatenateConverter : public OpConversionPattern<mhlo::ConcatenateOp> {
-  using OpConversionPattern<mhlo::ConcatenateOp>::OpConversionPattern;
+/// Converts stablehlo.concatenate operation to a linalg.generic op.
+struct ConcatenateConverter : public OpConversionPattern<stablehlo::ConcatenateOp> {
+  using OpConversionPattern::OpConversionPattern;
 
   LogicalResult matchAndRewrite(
-      mhlo::ConcatenateOp op, OpAdaptor adaptor,
+      stablehlo::ConcatenateOp op, OpAdaptor adaptor,
       ConversionPatternRewriter& rewriter) const override {
     // Shortcut the one-operand case, simplifies code below.
     if (adaptor.getOperands().size() == 1) {

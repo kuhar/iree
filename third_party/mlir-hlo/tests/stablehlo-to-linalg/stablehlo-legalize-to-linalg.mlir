@@ -993,3 +993,106 @@ func.func @bitcast_convert_contract(%input: tensor<7x4xi8>) -> tensor<7xi32> {
 // CHECK: } -> tensor<7xi32>
 // CHECK: return %[[RESULT]] : tensor<7xi32>
 
+// -----
+
+// CHECK-LABEL:   func @concatenate(
+// CHECK-SAME:   %[[VAL_0:[a-zA-Z0-9_]*]]
+// CHECK-SAME:   %[[VAL_1:[a-zA-Z0-9_]*]]
+// CHECK-SAME:   %[[VAL_2:[a-zA-Z0-9_]*]]
+// CHECK-DAG:       %[[C0:.*]] = arith.constant 0 : index
+// CHECK-DAG:       %[[C1:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_5:.*]] = tensor.dim %[[VAL_0]], %[[C0]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_7:.*]] = tensor.dim %[[VAL_0]], %[[C1]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_9:.*]] = tensor.dim %[[VAL_1]], %[[C1]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_15:.*]] = tensor.dim %[[VAL_2]], %[[C1]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_16:.*]] = arith.addi %[[VAL_7]], %[[VAL_9]] : index
+// CHECK:           %[[VAL_17:.*]] = arith.addi %[[VAL_16]], %[[VAL_15]] : index
+// CHECK:           %[[VAL_23:.*]] = tensor.empty(%[[VAL_5]], %[[VAL_17]]) : tensor<?x?xi32>
+// CHECK:           %[[VAL_24:.*]] = linalg.generic {indexing_maps = [#map], iterator_types = ["parallel", "parallel"]} outs(%[[VAL_23]] : tensor<?x?xi32>) {
+// CHECK:           ^bb0(%[[VAL_25:.*]]: i32):
+// CHECK:             %[[VAL_26:.*]] = linalg.index 0 : index
+// CHECK:             %[[VAL_28:.*]] = linalg.index 1 : index
+// CHECK:             %[[VAL_30:.*]] = tensor.dim %[[VAL_0]], %[[C1]] : tensor<?x?xi32>
+// CHECK:             %[[VAL_32:.*]] = arith.cmpi ult, %[[VAL_28]], %[[VAL_30]] : index
+// CHECK:             %[[VAL_33:.*]] = scf.if %[[VAL_32]] -> (i32) {
+// CHECK:               %[[VAL_35:.*]] = tensor.extract %[[VAL_0]][%[[VAL_26]], %[[VAL_28]]] : tensor<?x?xi32>
+// CHECK:               scf.yield %[[VAL_35]] : i32
+// CHECK:             } else {
+// CHECK:               %[[VAL_37:.*]] = tensor.dim %[[VAL_1]], %[[C1]] : tensor<?x?xi32>
+// CHECK:               %[[VAL_38:.*]] = arith.addi %[[VAL_30]], %[[VAL_37]] : index
+// CHECK:               %[[VAL_39:.*]] = arith.cmpi ult, %[[VAL_28]], %[[VAL_38]] : index
+// CHECK:               %[[VAL_40:.*]] = scf.if %[[VAL_39]] -> (i32) {
+// CHECK:                 %[[VAL_41:.*]] = arith.subi %[[VAL_28]], %[[VAL_30]] : index
+// CHECK:                 %[[VAL_42:.*]] = tensor.extract %[[VAL_1]][%[[VAL_26]], %[[VAL_41]]] : tensor<?x?xi32>
+// CHECK:                 scf.yield %[[VAL_42]] : i32
+// CHECK:               } else {
+// CHECK:                 %[[VAL_43:.*]] = arith.subi %[[VAL_28]], %[[VAL_38]] : index
+// CHECK:                 %[[VAL_44:.*]] = tensor.extract %[[VAL_2]][%[[VAL_26]], %[[VAL_43]]] : tensor<?x?xi32>
+// CHECK:                 scf.yield %[[VAL_44]] : i32
+// CHECK:               }
+// CHECK:               scf.yield %[[VAL_45:.*]] : i32
+// CHECK:             }
+// CHECK:             linalg.yield %[[VAL_46:.*]] : i32
+// CHECK:           } -> tensor<?x?xi32>
+// CHECK:           return %[[VAL_47:.*]] : tensor<?x?xi32>
+// CHECK:         }
+func.func @concatenate(%a: tensor<?x?xi32>, %b: tensor<?x?xi32>, %c: tensor<?x?xi32>) -> tensor<?x?xi32> {
+    %concat = "stablehlo.concatenate"(%a, %b, %c) {
+      dimension = 1
+    } : (tensor<?x?xi32>, tensor<?x?xi32>, tensor<?x?xi32>) -> tensor<?x?xi32>
+    func.return %concat : tensor<?x?xi32>
+}
+
+// -----
+
+// CHECK-LABEL:   func @concatenate_unsigned(
+// CHECK-SAME:   %[[VAL_0:[a-zA-Z0-9_]*]]
+// CHECK-SAME:   %[[VAL_1:[a-zA-Z0-9_]*]]
+// CHECK-SAME:   %[[VAL_2:[a-zA-Z0-9_]*]]
+// CHECK-DAG:       %[[C0:.*]] = arith.constant 0 : index
+// CHECK-DAG:       %[[C1:.*]] = arith.constant 1 : index
+// CHECK-DAG:       %[[VAL_5:.*]] = builtin.unrealized_conversion_cast %[[VAL_2]] : tensor<?x?xui32> to tensor<?x?xi32>
+// CHECK-DAG:       %[[VAL_4:.*]] = builtin.unrealized_conversion_cast %[[VAL_1]] : tensor<?x?xui32> to tensor<?x?xi32>
+// CHECK-DAG:       %[[VAL_3:.*]] = builtin.unrealized_conversion_cast %[[VAL_0]] : tensor<?x?xui32> to tensor<?x?xi32>
+// CHECK:           %[[VAL_8:.*]] = tensor.dim %[[VAL_3]], %[[C0]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_10:.*]] = tensor.dim %[[VAL_3]], %[[C1]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_14:.*]] = tensor.dim %[[VAL_4]], %[[C1]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_18:.*]] = tensor.dim %[[VAL_5]], %[[C1]] : tensor<?x?xi32>
+// CHECK:           %[[VAL_19:.*]] = arith.addi %[[VAL_10]], %[[VAL_14]] : index
+// CHECK:           %[[VAL_20:.*]] = arith.addi %[[VAL_19]], %[[VAL_18]] : index
+// CHECK:           %[[VAL_26:.*]] = tensor.empty(%[[VAL_8]], %[[VAL_20]]) : tensor<?x?xi32>
+// CHECK:           %[[VAL_27:.*]] = linalg.generic {indexing_maps = [#map], iterator_types = ["parallel", "parallel"]} outs(%[[VAL_26]] : tensor<?x?xi32>) {
+// CHECK:           ^bb0(%[[VAL_28:.*]]: i32):
+// CHECK:             %[[VAL_29:.*]] = linalg.index 0 : index
+// CHECK:             %[[VAL_30:.*]] = linalg.index 1 : index
+// CHECK:             %[[VAL_33:.*]] = tensor.dim %[[VAL_3]], %[[C1]] : tensor<?x?xi32>
+// CHECK:             %[[VAL_35:.*]] = arith.cmpi ult, %[[VAL_30]], %[[VAL_33]] : index
+// CHECK:             %[[VAL_36:.*]] = scf.if %[[VAL_35]] -> (i32) {
+// CHECK:               %[[VAL_38:.*]] = tensor.extract %[[VAL_3]][%[[VAL_29]], %[[VAL_30]]] : tensor<?x?xi32>
+// CHECK:               scf.yield %[[VAL_38]] : i32
+// CHECK:             } else {
+// CHECK:               %[[VAL_40:.*]] = tensor.dim %[[VAL_4]], %[[C1]] : tensor<?x?xi32>
+// CHECK:               %[[VAL_41:.*]] = arith.addi %[[VAL_33]], %[[VAL_40]] : index
+// CHECK:               %[[VAL_42:.*]] = arith.cmpi ult, %[[VAL_30]], %[[VAL_41]] : index
+// CHECK:               %[[VAL_43:.*]] = scf.if %[[VAL_42]] -> (i32) {
+// CHECK:                 %[[VAL_44:.*]] = arith.subi %[[VAL_30]], %[[VAL_33]] : index
+// CHECK:                 %[[VAL_45:.*]] = tensor.extract %[[VAL_4]][%[[VAL_29]], %[[VAL_44]]] : tensor<?x?xi32>
+// CHECK:                 scf.yield %[[VAL_45]] : i32
+// CHECK:               } else {
+// CHECK:                 %[[VAL_46:.*]] = arith.subi %[[VAL_30]], %[[VAL_41]] : index
+// CHECK:                 %[[VAL_47:.*]] = tensor.extract %[[VAL_5]][%[[VAL_29]], %[[VAL_46]]] : tensor<?x?xi32>
+// CHECK:                 scf.yield %[[VAL_47]] : i32
+// CHECK:               }
+// CHECK:               scf.yield %[[VAL_48:.*]] : i32
+// CHECK:             }
+// CHECK:             linalg.yield %[[VAL_49:.*]] : i32
+// CHECK:           } -> tensor<?x?xi32>
+// CHECK:           %[[VAL_50:.*]] = builtin.unrealized_conversion_cast %[[VAL_51:.*]] : tensor<?x?xi32> to tensor<?x?xui32>
+// CHECK:           return %[[VAL_50]] : tensor<?x?xui32>
+// CHECK:         }
+func.func @concatenate_unsigned(%a: tensor<?x?xui32>, %b: tensor<?x?xui32>, %c: tensor<?x?xui32>) -> tensor<?x?xui32> {
+    %concat = "stablehlo.concatenate"(%a, %b, %c) {
+      dimension = 1
+    } : (tensor<?x?xui32>, tensor<?x?xui32>, tensor<?x?xui32>) -> tensor<?x?xui32>
+    func.return %concat : tensor<?x?xui32>
+}
