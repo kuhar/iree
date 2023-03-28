@@ -4564,7 +4564,7 @@ void populateStableHloToLinalgConversionPattern(MLIRContext* context,
       PointwiseToLinalgConverter<stablehlo::TanhOp>,
       PointwiseToLinalgConverter<stablehlo::XorOp>,
       ReduceOpToGenericConverter,
-      TransposeConverter<mhlo::TransposeOp>
+      TransposeConverter<stablehlo::TransposeOp>
     >(typeConverter, context);
   }
 
