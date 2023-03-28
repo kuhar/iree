@@ -1989,3 +1989,160 @@ func.func @transpose_unsigned(%arg0: tensor<2x2xui32>) -> tensor<2x2xui32> {
 // CHECK-LABEL: func @transpose_unsigned
 // CHECK-PRIMITIVE-LABEL: func @transpose_unsigned
 
+// -----
+
+func.func @dot_matmul(%arg0: tensor<2x3xf32>,
+                 %arg1: tensor<3x?xf32>) -> tensor<2x?xf32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) {someattr}
+           : (tensor<2x3xf32>, tensor<3x?xf32>) -> tensor<2x?xf32>
+  func.return %0 : tensor<2x?xf32>
+}
+// CHECK-LABEL: func @dot_matmul(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x3xf32>, %[[ARG1:.*]]: tensor<3x?xf32>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG1]], %[[C1]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D1]])
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.matmul
+// CHECK-SAME: {someattr}
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<2x3xf32>, tensor<3x?xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<2x?xf32>)
+
+// -----
+
+func.func @dot_matmul_complex(%arg0: tensor<2x3xcomplex<f32>>,
+                 %arg1: tensor<3x?xcomplex<f32>>) -> tensor<2x?xcomplex<f32>> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) {someattr}
+           : (tensor<2x3xcomplex<f32>>, tensor<3x?xcomplex<f32>>) -> tensor<2x?xcomplex<f32>>
+  func.return %0 : tensor<2x?xcomplex<f32>>
+}
+// CHECK-LABEL: func @dot_matmul_complex(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x3xcomplex<f32>>, %[[ARG1:.*]]: tensor<3x?xcomplex<f32>>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG1]], %[[C1]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D1]]) : tensor<2x?x
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.matmul
+// CHECK-SAME: {someattr}
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<2x3xcomplex<f32>>, tensor<3x?xcomplex<f32>>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<2x?xcomplex<f32>>)
+
+// -----
+
+func.func @dot_matmul_i8_i8_i32(%arg0: tensor<2x3xi8>,
+                 %arg1: tensor<3x?xi8>) -> tensor<2x?xi32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<2x3xi8>,
+                                   tensor<3x?xi8>) -> tensor<2x?xi32>
+  func.return %0 : tensor<2x?xi32>
+}
+// CHECK-LABEL: func @dot_matmul_i8_i8_i32(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x3xi8>, %[[ARG1:.*]]: tensor<3x?xi8>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG1]], %[[C1]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D1]]) : tensor<2x?x
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.matmul
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<2x3xi8>, tensor<3x?xi8>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<2x?xi32>)
+
+// -----
+
+func.func @dot_matmul_i16_i16_i32(%arg0: tensor<2x3xi16>,
+                 %arg1: tensor<3x?xi16>) -> tensor<2x?xi32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<2x3xi16>,
+                                   tensor<3x?xi16>) -> tensor<2x?xi32>
+  func.return %0 : tensor<2x?xi32>
+}
+// CHECK-LABEL: func @dot_matmul_i16_i16_i32(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x3xi16>, %[[ARG1:.*]]: tensor<3x?xi16>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG1]], %[[C1]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D1]]) : tensor<2x?x
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.matmul
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<2x3xi16>, tensor<3x?xi16>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<2x?xi32>)
+
+// -----
+
+func.func @dot_matmul_i32_i32_i32(%arg0: tensor<2x3xi32>,
+                 %arg1: tensor<3x?xi32>) -> tensor<2x?xi32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<2x3xi32>,
+                                   tensor<3x?xi32>) -> tensor<2x?xi32>
+  func.return %0 : tensor<2x?xi32>
+}
+// CHECK-LABEL: func @dot_matmul_i32_i32_i32(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x3xi32>, %[[ARG1:.*]]: tensor<3x?xi32>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG1]], %[[C1]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D1]]) : tensor<2x?x
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.matmul
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<2x3xi32>, tensor<3x?xi32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<2x?xi32>)
+
+// -----
+
+func.func @dot_matvec(%arg0: tensor<?x3xf32>,
+                 %arg1: tensor<3xf32>) -> tensor<?xf32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<?x3xf32>,
+                                   tensor<3xf32>) -> tensor<?xf32>
+  func.return %0 : tensor<?xf32>
+}
+// CHECK-LABEL: func @dot_matvec(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<?x3xf32>, %[[ARG1:.*]]: tensor<3xf32>)
+// CHECK: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[D0:.*]] = tensor.dim %[[ARG0]], %[[C0]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D0]])
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.matvec
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<?x3xf32>, tensor<3xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<?xf32>)
+
+// -----
+
+func.func @dot_vecmat(%arg0: tensor<3xf32>,
+                 %arg1: tensor<3x?xf32>) -> tensor<?xf32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<3xf32>,
+                                   tensor<3x?xf32>) -> tensor<?xf32>
+  func.return %0 : tensor<?xf32>
+}
+// CHECK-LABEL: func @dot_vecmat(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<3xf32>, %[[ARG1:.*]]: tensor<3x?xf32>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[D1:.*]] = tensor.dim %[[ARG1]], %[[C1]]
+// CHECK: %[[INIT:.*]] = tensor.empty(%[[D1]])
+// CHECK: linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.vecmat
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<3xf32>, tensor<3x?xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<?xf32>)
+
+// -----
+
+func.func @dot_dot(%arg0: tensor<?xf32>,
+              %arg1: tensor<?xf32>) -> tensor<f32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<?xf32>, tensor<?xf32>) -> tensor<f32>
+  func.return %0 : tensor<f32>
+}
+// CHECK-LABEL: func @dot_dot(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<?xf32>, %[[ARG1:.*]]: tensor<?xf32>)
+// CHECK: %[[INIT:.*]] = tensor.empty()
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}{{.*}}outs(%[[INIT]]
+// CHECK: linalg.dot
+// CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<?xf32>, tensor<?xf32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<f32>)
+
+// -----
+
+func.func @dot_dot_unsigned(%arg0: tensor<?xui32>,
+              %arg1: tensor<?xui32>) -> tensor<ui32> {
+  %0 = "stablehlo.dot"(%arg0, %arg1) : (tensor<?xui32>, tensor<?xui32>) -> tensor<ui32>
+  func.return %0 : tensor<ui32>
+}
+// CHECK-LABEL: func @dot_dot_unsigned(
+// CHECK-SAME: %[[ARG0:.*]]: tensor<?xui32>, %[[ARG1:.*]]: tensor<?xui32>)
+// CHECK: %[[INIT:.*]] = tensor.empty()
+// CHECK: %[[FILL:.*]] = linalg.fill ins(%{{.*}}outs(%[[INIT]]
+// CHECK: linalg.dot
+// CHECK-SAME: ins(%{{.*}} : tensor<?xi32>, tensor<?xi32>)
+// CHECK-SAME: outs(%[[FILL]] : tensor<i32>)
