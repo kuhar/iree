@@ -7,6 +7,7 @@
 #include "iree/compiler/Codegen/Common/GPU/PassDetail.h"
 #include "iree/compiler/Codegen/Common/GPU/Passes.h"
 #include "iree/compiler/Codegen/Dialect/IREECodegenAttrs.h"
+#include "llvm/ADT/STLExtras.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -31,6 +32,11 @@ static LogicalResult tileReduction(linalg::LinalgOp op) {
     if (dims[dims.size() - 1 - i] != op.getNumLoops() - 1 - i)
       return success();
   }
+
+  tileSize.back() *= 8;
+  llvm::interleaveComma(tileSize, llvm::errs() << "JAKUB: tiling sizes: ");
+  llvm::errs() << "\n";
+
   IRRewriter rewriter(op.getContext());
   SmallVector<OpFoldResult> sizes;
   for (int64_t size : tileSize) {
@@ -41,6 +47,7 @@ static LogicalResult tileReduction(linalg::LinalgOp op) {
       rewriter, cast<PartialReductionOpInterface>(op.getOperation()), sizes);
   if (failed(results))
     return failure();
+  llvm::errs() << "JAKUB: Tiling succeeded\n";
   return success();
 }
 
@@ -71,6 +78,7 @@ struct GPUTileReductionPass
     SmallVector<linalg::LinalgOp> linalgOps;
     funcOp.walk([&](linalg::LinalgOp op) { linalgOps.push_back(op); });
     for (linalg::LinalgOp op : linalgOps) {
+      llvm::errs() << "JAKUB: GPU tile reduction on:\n" << op << "\n";
       if (op.getNumReductionLoops() > 0) {
         if (failed(tileReduction(op))) {
           return signalPassFailure();
