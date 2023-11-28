@@ -23,6 +23,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::iree_compiler;
@@ -833,6 +834,23 @@ static LogicalResult setWarpReductionConfig(func::FuncOp entryPoint,
   // Reduction distribution only supports 8/16/32 bit types now.
   if (bitWidth != 32 && bitWidth != 16 && bitWidth != 8)
     return failure();
+
+  llvm::errs() << "JAKUB: checking if we should hardcode matvec config\n";
+  if (elementType.isF16() &&
+      bounds == llvm::to_vector_of<int64_t>(
+                    std::initializer_list<int>{1, 32000, 4096})) {
+    llvm::errs() << "JAKUB: matvec tile config\n";
+    TileSizesListType tileSizes;
+    tileSizes.push_back({1, 1});
+    tileSizes.push_back({0, 0, 4096});
+    if (failed(setOpConfigAndEntryPointFnTranslation(
+            op->getParentOfType<func::FuncOp>(), op, tileSizes,
+            IREE::Codegen::DispatchLoweringPassPipeline::LLVMGPUWarpReduction,
+            {64, 1, 1}))) {
+      return failure();
+    }
+    return success();
+  }
 
   const unsigned largestLoadSizeInBits = 128;
   unsigned vectorSize = largestLoadSizeInBits / bitWidth;
