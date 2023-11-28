@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorDistribution.h"
+#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -188,63 +189,6 @@ class WarpOpBarrier : public OpRewritePattern<vector::WarpExecuteOnLane0Op> {
   }
 };
 
-struct ReduceZero final : OpRewritePattern<vector::ReductionOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(vector::ReductionOp op,
-                                PatternRewriter &rewriter) const override {
-    if (op.getKind() != vector::CombiningKind::ADD)
-      return failure();
-
-    if (!isa<FloatType>(op.getVector().getType().getElementType()))
-      return failure();
-
-    auto vAdd = op.getVector().getDefiningOp<arith::AddFOp>();
-    if (!vAdd)
-      return failure();
-    auto addLhs = vAdd.getLhs().getDefiningOp<arith::AddFOp>();
-    if (!addLhs)
-      return failure();
-
-    if (!matchPattern(addLhs.getRhs(), m_AnyZeroFloat()))
-      return failure();
-
-    llvm::errs() << "\tZERO found!\n";
-
-    auto newAdd = rewriter.create<arith::AddFOp>(vAdd.getLoc(), addLhs.getLhs(),
-                                                 vAdd.getRhs());
-    rewriter.replaceOpWithNewOp<vector::ReductionOp>(op, op.getKind(), newAdd,
-                                                     op.getAcc());
-    return success();
-  }
-};
-
-/// Pattern to convert chained to reduction to a series of vector additions and
-/// a final reductions. This form should require fewer subgroup operations.
-struct ChainedReduction final : OpRewritePattern<vector::ReductionOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(vector::ReductionOp op,
-                                PatternRewriter &rewriter) const override {
-    if (op.getKind() != vector::CombiningKind::ADD)
-      return failure();
-
-    if (!isa<FloatType>(op.getAcc().getType()))
-      return failure();
-
-    auto parentReduction = op.getAcc().getDefiningOp<vector::ReductionOp>();
-    if (!parentReduction)
-      return failure();
-
-    Location loc = op.getLoc();
-    auto vAdd = rewriter.create<arith::AddFOp>(loc, parentReduction.getVector(),
-                                               op.getVector());
-    rewriter.replaceOpWithNewOp<vector::ReductionOp>(op, op.getKind(), vAdd,
-                                                     parentReduction.getAcc());
-    return success();
-  }
-};
-
 static Value simpleWarpShuffleFunction(Location loc, OpBuilder &builder,
                                        Value val, Value srcIdx,
                                        int64_t warpSz) {
@@ -365,8 +309,7 @@ public:
       vector::ShapeCastOp::getCanonicalizationPatterns(patterns, ctx);
       vector::BroadcastOp::getCanonicalizationPatterns(patterns, ctx);
       vector::ExtractOp::getCanonicalizationPatterns(patterns, ctx);
-      patterns.add<ReduceZero>(ctx, PatternBenefit(2));
-      patterns.add<ChainedReduction>(ctx);
+      vector::populateChainedVectorReductionFoldingPatterns(patterns);
       (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
     }
 
