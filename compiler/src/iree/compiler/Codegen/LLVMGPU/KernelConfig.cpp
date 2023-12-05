@@ -942,7 +942,8 @@ static LogicalResult setWarpReductionConfig(func::FuncOp entryPoint,
     remainingGroupSize /= size.getSExtValue();
   }
   TileSizesListType tileSizes;
-  tileSizes.emplace_back(std::move(workgroupTileSizes)); // Workgroup level
+  tileSizes.push_back({1, 4});
+  // tileSizes.emplace_back(std::move(workgroupTileSizes)); // Workgroup level
   tileSizes.emplace_back(std::move(reductionTileSizes)); // reduction level
   return setOpConfigAndEntryPointFnTranslation(
       entryPoint, op, tileSizes,

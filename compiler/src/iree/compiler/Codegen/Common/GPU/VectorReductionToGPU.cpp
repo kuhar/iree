@@ -4,18 +4,29 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <cstdint>
+#include <optional>
 #include "iree/compiler/Codegen/Common/GPU/PassDetail.h"
 #include "iree/compiler/Codegen/Common/GPU/Passes.h"
 #include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "iree/compiler/Codegen/Utils/Utils.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorDistribution.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #define DEBUG_TYPE "iree-codegen-vector-reduction-to-gpu"
@@ -189,6 +200,139 @@ static Value simpleWarpShuffleFunction(Location loc, OpBuilder &builder,
   return result;
 }
 
+static std::optional<SmallVector<int64_t>>
+getNativeVectorShapeImpl(VectorType type) {
+  if (type.isScalable())
+    return std::nullopt;
+  if (type.getRank() != 2)
+    return std::nullopt;
+
+  auto shape = llvm::to_vector(type.getShape());
+  shape[0] = 1;
+  return shape;
+}
+
+static std::optional<SmallVector<int64_t>> getNativeVectorShape(Operation *op) {
+  llvm::errs() << "Get native vector sharpe for: " << *op << "\n";
+  // return std::nullopt;
+  if (OpTrait::hasElementwiseMappableTraits(op) && op->getNumResults() == 1) {
+    if (auto vecType = llvm::dyn_cast<VectorType>(op->getResultTypes()[0])) {
+      return getNativeVectorShapeImpl(vecType);
+    }
+  }
+
+  auto res =
+      TypeSwitch<Operation *, std::optional<SmallVector<int64_t>>>(op)
+          .Case<VectorTransferOpInterface>(
+              [](VectorTransferOpInterface op)
+                  -> std::optional<SmallVector<int64_t>> {
+                if (isa<vector::TransferWriteOp>(op))
+                  return SmallVector<int64_t>{1};
+
+                return getNativeVectorShapeImpl(op.getVectorType());
+              })
+          .Case<vector::MultiDimReductionOp>(
+              [](vector::MultiDimReductionOp op) {
+                return getNativeVectorShapeImpl(op.getSourceVectorType());
+              })
+          .Case<vector::BroadcastOp>([](vector::BroadcastOp op) {
+            return getNativeVectorShapeImpl(op.getResultVectorType());
+          })
+          .Default([](Operation *) { return std::nullopt; });
+
+  if (res) {
+    llvm::errs() << "\tshape: [";
+    llvm::interleaveComma(*res, llvm::errs());
+    llvm::errs() << "]\n";
+  } else {
+    llvm::errs() << "\tshape: <nullopt>\n";
+  }
+
+  return res;
+}
+
+/// Pattern to sink `gpu.barrier` ops out of a `warp_execute_on_lane_0` op.
+struct ScfForSplit final : OpRewritePattern<scf::ForOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(scf::ForOp op,
+                                PatternRewriter &rewriter) const override {
+    if (op.getNumResults() != 1)
+      return failure();
+
+    auto type = dyn_cast<VectorType>(op.getResultTypes().front());
+    if (!type || type.isScalable() || type.getRank() <= 1)
+      return failure();
+
+    if (op.getNumRegionIterArgs() != 1)
+      return failure();
+
+    auto shape = llvm::to_vector(type.getShape());
+    int64_t numResults = shape.front();
+    if (numResults == 1)
+      return failure();
+
+    llvm::errs() << "JAKUB: scf.for loop\n";
+    Location loc = op.getLoc();
+    llvm::SmallVector<Value> extractedInputs(numResults);
+    Value arg = op.getInitArgs().front();
+    for (auto [idx, input] : llvm::enumerate(extractedInputs)) {
+      input = rewriter.create<vector::ExtractOp>(loc, arg, idx);
+      llvm::errs() << "\tNew input: " << input << "\n";
+    }
+
+    auto newLoop =
+        op.replaceWithAdditionalIterOperands(rewriter, extractedInputs, true);
+    if (failed(newLoop))
+      return failure();
+
+    op = cast<scf::ForOp>(*newLoop);
+
+    rewriter.startRootUpdate(op);
+    Block &block = op.getRegion().getBlocks().front();
+    rewriter.setInsertionPointToStart(&block);
+    BlockArgument origIterArg = op.getRegionIterArg(0);
+    Value newIterArg = rewriter.create<arith::ConstantOp>(
+        origIterArg.getLoc(), origIterArg.getType(),
+        rewriter.getZeroAttr(origIterArg.getType()));
+    for (auto [idx, iterArg] :
+         llvm::enumerate(op.getRegionIterArgs().drop_front())) {
+      newIterArg = rewriter.create<vector::InsertOp>(origIterArg.getLoc(),
+                                                     iterArg, newIterArg, idx);
+    }
+    origIterArg.replaceAllUsesWith(newIterArg);
+
+    auto yieldOp = cast<scf::YieldOp>(block.getTerminator());
+    Value origYieldValue = yieldOp->getOperand(0);
+    rewriter.setInsertionPoint(yieldOp);
+    for (auto [idx, operand] :
+         llvm::enumerate(yieldOp->getOpOperands().drop_front())) {
+      operand.assign(rewriter.create<vector::ExtractOp>(yieldOp.getLoc(),
+                                                        origYieldValue, idx));
+    }
+    rewriter.finalizeRootUpdate(op);
+
+    rewriter.setInsertionPointAfter(op);
+    Value newResult = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), type, rewriter.getZeroAttr(type));
+    for (auto [idx, result] : llvm::enumerate(op->getResults().drop_front())) {
+      newResult = rewriter.create<vector::InsertOp>(op.getLoc(), result,
+                                                    newResult, idx);
+    }
+    rewriter.replaceAllUsesWith(op->getResult(0), newResult);
+
+    llvm::errs() << "With replace operands: " << op << "\n";
+    return success();
+  }
+};
+
+/// Adds patterns to unroll vector ops to SPIR-V native vector size.
+static void populateVectorUnrollPatterns(RewritePatternSet &patterns) {
+  auto options =
+      vector::UnrollVectorOptions().setNativeShapeFn(getNativeVectorShape);
+  vector::populateVectorUnrollPatterns(patterns, options);
+}
+
 class VectorReductionToGPUPass
     : public VectorReductionToGPUBase<VectorReductionToGPUPass> {
 public:
@@ -224,6 +368,24 @@ public:
     }
 
     debugPrint(funcOp, "after step #1: preprocessing reduction ops");
+
+    {
+      RewritePatternSet patterns(ctx);
+      populateVectorUnrollPatterns(patterns);
+      patterns.add<ScfForSplit>(ctx);
+      scf::ForOp::getCanonicalizationPatterns(patterns, ctx);
+      vector::ExtractStridedSliceOp::getCanonicalizationPatterns(patterns, ctx);
+      vector::InsertStridedSliceOp::getCanonicalizationPatterns(patterns, ctx);
+      vector::ExtractOp::getCanonicalizationPatterns(patterns, ctx);
+      vector::InsertOp::getCanonicalizationPatterns(patterns, ctx);
+      vector::ReductionOp::getCanonicalizationPatterns(patterns, ctx);
+      vector::BroadcastOp::getCanonicalizationPatterns(patterns, ctx);
+      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
+        return signalPassFailure();
+      }
+    }
+
+    debugPrint(funcOp, "after unrolling vector ops");
 
     auto workgroupSize = llvm::map_to_vector(
         getEntryPoint(funcOp)->getWorkgroupSize().value(),
