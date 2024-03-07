@@ -58,6 +58,7 @@ bool LayoutAttr::isValidLayout(ArrayRef<int64_t> shape) const {
                     static_cast<int64_t>(1), std::multiplies<int64_t>());
     int64_t expectedShape = shape[perDimLayout.index()];
     if (computedShape != expectedShape) {
+      llvm::errs() << "Computed shape: " << computedShape << ", expected shape: " << expectedShape << "\n";
       return false;
     }
   }
