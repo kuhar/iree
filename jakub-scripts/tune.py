@@ -47,7 +47,7 @@ def apply_params(template, configuration):
 
     print("Repl: ", repl)
     print("Repl2: ", repl2)
-    modified = ''
+    modified = f'// {configuration}\n'
     for line in template:
         if 'intrinsic' in line:
             line = re.sub(expr, repl, line)
@@ -97,12 +97,12 @@ def generate_constraints(tile_sizes, subgroup_size, subgroup_m_count, subgroup_n
     constraints += [is_pow2(n, 4, 9)]
     constraints += [is_pow2(k, 4, 9)]
     for x in (subgroup_m_count, subgroup_n_count,
-              subgroup_n_count, subgroup_n_tile_count, subgroup_k_tile_count):
-        constraints += [x >= 1, x <= 16]
-        constraints += is_pow2(x, 0, 6)
-    constraints += [m == subgroup_m_count * subgroup_m_tile_count * subgroup_size]
-    constraints += [n == subgroup_n_count * subgroup_n_tile_count * subgroup_size]
-    constraints += [k * subgroup_k_tile_count == workgroup_size]
+              subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
+        # constraints += [x >= 1, x <= 16]
+        constraints += [is_pow2(x, 0, 4)]
+    #constraints += [m == subgroup_m_count * subgroup_m_tile_count * subgroup_size]
+    #constraints += [n == subgroup_n_count * subgroup_n_tile_count * subgroup_size]
+    #constraints += [k * subgroup_k_tile_count == workgroup_size]
     return constraints
 
 @dataclass
@@ -173,9 +173,11 @@ if __name__ == '__main__':
     template = create_template(input_file)
     M, N, K = get_shapes(template)
 
-    for i, config in enumerate(generate_solutions())[:args.limit]:
+    for i, config in enumerate(generate_solutions()):
+        if i >= args.limit:
+            break
         #params = generate_candidate(config.tile_sizes, M, N, K)
         new_mlir = apply_params(template, config)
 
-        with open(path.join(args.output, f'candidate_{i}.mlir') , 'w') as f:
+        with open(path.join(args.output, f'{i}.mlir') , 'w') as f:
             f.write(new_mlir)
