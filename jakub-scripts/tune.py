@@ -8,7 +8,7 @@ import logging
 import re
 import z3
 from dataclasses import asdict, dataclass
-from os import path
+from os import mkdir, path
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -45,8 +45,8 @@ def apply_params(template, configuration):
             repl2 += ', '
     repl2 += ']]'
 
-    print("Repl: ", repl)
-    print("Repl2: ", repl2)
+    #print("Repl: ", repl)
+    #print("Repl2: ", repl2)
     modified = f'// {configuration}\n'
     for line in template:
         if 'intrinsic' in line:
@@ -75,34 +75,33 @@ def get_shapes(template):
 
     assert False, "Shape not found"
 
-
-def And(a, b):
-    a_module = a.__class__.__module__
-    b_module = b.__class__.__module__
-    if a_module == b_module == 'builtins':
-        return a and b
-    return z3.And(a, b)
-
 def is_pow2(x, min, max):
     return z3.Or(list(x == 2 ** i for i in range(min, max + 1)))
 
-def generate_constraints(tile_sizes, subgroup_size, subgroup_m_count, subgroup_n_count,
+def generate_constraints(problem_size, tile_sizes, subgroup_size, subgroup_m_count, subgroup_n_count,
                          subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
+    M, N, K = problem_size
     m, n, k = tile_sizes
     workgroup_size = subgroup_size * 4
     constraints = [subgroup_size == 64]
     # constraints += [m >= 16, n >= 16, k >= 16]
     # constraints += [m <= 512, m <= 512, k <= 512]
-    constraints += [is_pow2(m, 4, 9)]
-    constraints += [is_pow2(n, 4, 9)]
-    constraints += [is_pow2(k, 4, 9)]
-    for x in (subgroup_m_count, subgroup_n_count,
-              subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
-        # constraints += [x >= 1, x <= 16]
-        constraints += [is_pow2(x, 0, 4)]
-    #constraints += [m == subgroup_m_count * subgroup_m_tile_count * subgroup_size]
-    #constraints += [n == subgroup_n_count * subgroup_n_tile_count * subgroup_size]
-    #constraints += [k * subgroup_k_tile_count == workgroup_size]
+    # constraints += [is_pow2(m, 3, 9), M == m * z3.FreshInt()]
+    constraints += [m >= 32, m <= 256, m == 8 * z3.FreshInt(), M == m * z3.FreshInt()]
+    constraints += [n >= 32, n <= 256, n == 8 * z3.FreshInt(), N == n * z3.FreshInt()]
+    constraints += [k >= 32, k <= 256, k == 8 * z3.FreshInt(), K == k * z3.FreshInt()]
+    #constraints += [is_pow2(n, 4, 9), N == n * z3.FreshInt()]
+    #constraints += [is_pow2(k, 3, 9), K == k * z3.FreshInt()]
+    for x in (subgroup_m_count, subgroup_n_count):
+        constraints += [is_pow2(x, 0, 3)]
+        #constraints += [x >= 1, x <= 12]
+    for x in (subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
+        # constraints += [x >= 1, x <= 12]
+        constraints += [is_pow2(x, 0, 3)]
+    # constraints += [m == subgroup_m_count * subgroup_m_tile_count * z3.FreshInt()]
+    # constraints += [n == subgroup_n_count * subgroup_n_tile_count * z3.FreshInt()]
+    # constraints += [k == subgroup_k_tile_count * z3.FreshInt()]
+    # constraints += [subgroup_k_tile_count == 1, subgroup_m_count > subgroup_n_count]
     return constraints
 
 @dataclass
@@ -132,7 +131,7 @@ def generate_candidate(tile_sizes, M, N, K):
     return candidate
 
 
-def generate_solutions():
+def generate_solutions(M, N, K):
     subgroup_size = z3.Int('subgroup_size')
     m, n, k = z3.Int('m'), z3.Int('n'), z3.Int('k')
     sg_m_cnt = z3.Int('sg_m_cnt')
@@ -143,7 +142,8 @@ def generate_solutions():
     all_vars = [m, n, k, sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt]
 
     solver = z3.Solver()
-    constraints = generate_constraints([m, n, k], subgroup_size, sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt)
+    constraints = generate_constraints([M, N, K], [m, n, k], subgroup_size,
+                                       sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt)
     solver.add(z3.simplify(z3.And(constraints)))
     logging.debug(f'Initial constraints: {solver}')
     i = 0
@@ -169,11 +169,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     input_file = str(args.input)
+    mkdir(str(args.output))
     logging.debug(f'Processing {input_file}')
     template = create_template(input_file)
     M, N, K = get_shapes(template)
 
-    for i, config in enumerate(generate_solutions()):
+    for i, config in enumerate(generate_solutions(M, N, K)):
         if i >= args.limit:
             break
         #params = generate_candidate(config.tile_sizes, M, N, K)
