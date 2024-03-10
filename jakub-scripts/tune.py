@@ -81,24 +81,29 @@ def is_pow2(x, min, max):
 def is_not_pow2(x, min, max):
     return z3.And(list(x != 2 ** i for i in range(min, max + 1)))
 
-def generate_constraints(problem_size, tile_sizes, subgroup_size, subgroup_m_count, subgroup_n_count,
+def generate_constraints(problem_size, tile_sizes, subgroup_size, workgroup_size,
+                         subgroup_m_count, subgroup_n_count,
                          subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
     M, N, K = problem_size
     m, n, k = tile_sizes
-    constraints = [subgroup_size == 64]
+    wg_x, wg_y, wg_z = workgroup_size
+    constraints = [subgroup_size == 64, wg_x * wg_y * wg_z <= 1024]
     mma_intrinsic_size = 16
     subgroup_k_count = 1
-    constraints += [m >= 32, m <= 256, m == 8 * z3.FreshInt(), M == m * z3.FreshInt()]
-    constraints += [n >= 32, n <= 256, n == 8 * z3.FreshInt(), N == n * z3.FreshInt()]
-    constraints += [k >= 32, k <= 256, k == 8 * z3.FreshInt(), K == k * z3.FreshInt()]
+    constraints += [m >= 32, m <= 512, m == 4 * z3.FreshInt(), M == m * z3.FreshInt()]
+    constraints += [n >= 32, n <= 512, n == 4 * z3.FreshInt(), N == n * z3.FreshInt()]
+    constraints += [k >= 32, k <= 512, k == 4 * z3.FreshInt(), K == k * z3.FreshInt()]
     for x in (subgroup_m_count, subgroup_n_count):
-        constraints += [x >= 1, x <= 12]
+        constraints += [x >= 1, x <= 16]
     for x in (subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
-        constraints += [x >= 1, x <= 12]
+        constraints += [x >= 1, x <= 16]
     
     constraints += [m == subgroup_m_count * subgroup_m_tile_count * mma_intrinsic_size]
     constraints += [n == subgroup_n_count * subgroup_n_tile_count * mma_intrinsic_size]
     constraints += [m == subgroup_k_count * subgroup_k_tile_count * mma_intrinsic_size]
+    constraints += [wg_x == subgroup_size * subgroup_n_count]
+    constraints += [wg_y == subgroup_m_count]
+    constraints += [wg_z == subgroup_k_count]
     return constraints
 
 @dataclass
@@ -113,33 +118,20 @@ class Configuration:
     subgroup_n_tile_count : int
     subgroup_k_tile_count : int
 
-def generate_candidate(tile_sizes, M, N, K):
-    m, n, k = tile_sizes
-    subgroup_size = 64
-    workgroup_size = 4 * subgroup_size
-    subgroup_m_count = 2
-    subgroup_n_count = 2
-    # breakpoint()
-    candidate = Configuration(64, [128, 2, 1], '#iree_gpu.mfma_layout<F16_16x16x16_F32>', tile_sizes,
-                              subgroup_m_count, subgroup_n_count,
-                              subgroup_m_tile_count=(m * subgroup_m_count) // subgroup_size,
-                              subgroup_n_tile_count=(n * subgroup_n_count) // subgroup_size,
-                              subgroup_k_tile_count=(k * workgroup_size // subgroup_size) // subgroup_size)
-    return candidate
-
-
 def generate_solutions(M, N, K):
-    subgroup_size = z3.Int('subgroup_size')
     m, n, k = z3.Int('m'), z3.Int('n'), z3.Int('k')
+    subgroup_size = z3.Int('subgroup_size')
+    wg_x, wg_y, wg_z = z3.Int('wg_x'), z3.Int('wg_y'), z3.Int('wg_z')
     sg_m_cnt = z3.Int('sg_m_cnt')
     sg_n_cnt = z3.Int('sg_n_cnt')
     sg_m_tcnt = z3.Int('sg_m_tcnt')
     sg_n_tcnt = z3.Int('sg_n_tcnt')
     sg_k_tcnt = z3.Int('sg_k_tcnt')
-    all_vars = [m, n, k, sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt]
+    all_vars = [m, n, k, subgroup_size, wg_x, wg_y, wg_z,
+                sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt]
 
     solver = z3.Solver()
-    constraints = generate_constraints([M, N, K], [m, n, k], subgroup_size,
+    constraints = generate_constraints([M, N, K], [m, n, k], subgroup_size, [wg_x, wg_y, wg_z],
                                        sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt)
     solver.add(z3.simplify(z3.And(constraints)))
     logging.debug(f'Initial constraints: {solver}')
@@ -148,7 +140,8 @@ def generate_solutions(M, N, K):
         model = solver.model()
         lookup = lambda var: model[var].as_long()
 
-        config = Configuration(lookup(subgroup_size), [128, 2, 1], '#iree_gpu.mfma_layout<F16_16x16x16_F32>',
+        config = Configuration(lookup(subgroup_size), [lookup(wg_x), lookup(wg_y), lookup(wg_z)],
+                               '#iree_gpu.mfma_layout<F16_16x16x16_F32>',
                                [lookup(m), lookup(n), lookup(k)], lookup(sg_m_cnt), lookup(sg_n_cnt),
                                lookup(sg_m_tcnt), lookup(sg_n_tcnt), lookup(sg_k_tcnt))
         print(f'Solution #{i}: {config}')
@@ -174,7 +167,6 @@ if __name__ == '__main__':
     for i, config in enumerate(generate_solutions(M, N, K)):
         if i >= args.limit:
             break
-        #params = generate_candidate(config.tile_sizes, M, N, K)
         new_mlir = apply_params(template, config)
 
         with open(path.join(args.output, f'{i}.mlir') , 'w') as f:
