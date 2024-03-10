@@ -69,7 +69,7 @@ def get_shapes(template):
             continue
 
         assert len(shape.groups()) == 4
-        M, K0, K1, N = shape.groups()
+        M, K0, N, K1 = shape.groups()
         assert K0 == K1
         return int(M), int(N), int(K0)
 
@@ -90,17 +90,17 @@ def generate_constraints(problem_size, tile_sizes, subgroup_size, workgroup_size
     constraints = [subgroup_size == 64, wg_x * wg_y * wg_z <= 1024]
     mma_intrinsic_size = 16
     subgroup_k_count = 1
-    constraints += [m >= 32, m <= 512, m == 4 * z3.FreshInt(), M == m * z3.FreshInt()]
-    constraints += [n >= 32, n <= 512, n == 4 * z3.FreshInt(), N == n * z3.FreshInt()]
-    constraints += [k >= 32, k <= 512, k == 4 * z3.FreshInt(), K == k * z3.FreshInt()]
+    constraints += [m >= 1, m <= 600, m <= M, M == m * z3.FreshInt()]
+    constraints += [n >= 1, n <= 600, n <= N, N == n * z3.FreshInt()]
+    constraints += [k >= 1, k <= 600, k <= K, K == k * z3.FreshInt()]
     for x in (subgroup_m_count, subgroup_n_count):
-        constraints += [x >= 1, x <= 16]
+        constraints += [x >= 1, x <= 32]
     for x in (subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
-        constraints += [x >= 1, x <= 16]
+        constraints += [x >= 1, x <= 32]
     
     constraints += [m == subgroup_m_count * subgroup_m_tile_count * mma_intrinsic_size]
     constraints += [n == subgroup_n_count * subgroup_n_tile_count * mma_intrinsic_size]
-    constraints += [m == subgroup_k_count * subgroup_k_tile_count * mma_intrinsic_size]
+    constraints += [k == subgroup_k_count * subgroup_k_tile_count * mma_intrinsic_size]
     constraints += [wg_x == subgroup_size * subgroup_n_count]
     constraints += [wg_y == subgroup_m_count]
     constraints += [wg_z == subgroup_k_count]
