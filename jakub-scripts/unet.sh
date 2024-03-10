@@ -17,7 +17,7 @@ tools/iree-compile \
     --iree-rocm-waves-per-eu=2 \
     --iree-preprocessing-pass-pipeline="builtin.module(iree-preprocessing-transpose-convolution-pipeline)" \
     --iree-codegen-llvmgpu-use-vector-distribution \
-    --iree-codegen-transform-dialect-library="$(realpath ~/iree/models/attention_mfma_transform_64_spec.mlir)" \
+    --iree-codegen-transform-dialect-library="$(realpath ~/models/attention_mfma_transform_64_spec.mlir)" \
     "$INPUT" $@
 
 # --iree-hal-dump-executable-files-to=dump-unet \

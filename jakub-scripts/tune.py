@@ -78,30 +78,27 @@ def get_shapes(template):
 def is_pow2(x, min, max):
     return z3.Or(list(x == 2 ** i for i in range(min, max + 1)))
 
+def is_not_pow2(x, min, max):
+    return z3.And(list(x != 2 ** i for i in range(min, max + 1)))
+
 def generate_constraints(problem_size, tile_sizes, subgroup_size, subgroup_m_count, subgroup_n_count,
                          subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
     M, N, K = problem_size
     m, n, k = tile_sizes
-    workgroup_size = subgroup_size * 4
     constraints = [subgroup_size == 64]
-    # constraints += [m >= 16, n >= 16, k >= 16]
-    # constraints += [m <= 512, m <= 512, k <= 512]
-    # constraints += [is_pow2(m, 3, 9), M == m * z3.FreshInt()]
+    mma_intrinsic_size = 16
+    subgroup_k_count = 1
     constraints += [m >= 32, m <= 256, m == 8 * z3.FreshInt(), M == m * z3.FreshInt()]
     constraints += [n >= 32, n <= 256, n == 8 * z3.FreshInt(), N == n * z3.FreshInt()]
     constraints += [k >= 32, k <= 256, k == 8 * z3.FreshInt(), K == k * z3.FreshInt()]
-    #constraints += [is_pow2(n, 4, 9), N == n * z3.FreshInt()]
-    #constraints += [is_pow2(k, 3, 9), K == k * z3.FreshInt()]
     for x in (subgroup_m_count, subgroup_n_count):
-        constraints += [is_pow2(x, 0, 3)]
-        #constraints += [x >= 1, x <= 12]
+        constraints += [x >= 1, x <= 12]
     for x in (subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
-        # constraints += [x >= 1, x <= 12]
-        constraints += [is_pow2(x, 0, 3)]
-    # constraints += [m == subgroup_m_count * subgroup_m_tile_count * z3.FreshInt()]
-    # constraints += [n == subgroup_n_count * subgroup_n_tile_count * z3.FreshInt()]
-    # constraints += [k == subgroup_k_tile_count * z3.FreshInt()]
-    # constraints += [subgroup_k_tile_count == 1, subgroup_m_count > subgroup_n_count]
+        constraints += [x >= 1, x <= 12]
+    
+    constraints += [m == subgroup_m_count * subgroup_m_tile_count * mma_intrinsic_size]
+    constraints += [n == subgroup_n_count * subgroup_n_tile_count * mma_intrinsic_size]
+    constraints += [m == subgroup_k_count * subgroup_k_tile_count * mma_intrinsic_size]
     return constraints
 
 @dataclass
