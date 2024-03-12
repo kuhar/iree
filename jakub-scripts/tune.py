@@ -9,16 +9,54 @@ import re
 import z3
 from dataclasses import asdict, dataclass
 from os import mkdir, path
+from textwrap import indent
 
 logging.basicConfig(level=logging.DEBUG)
 
+@dataclass
+class Configuration:
+    subgroup_size : int
+    workgroup_size : list[int]
+    intrinsic : str
+    tile_sizes : list[int]
+    subgroup_m_count : int
+    subgroup_n_count : int
+    subgroup_m_tile_count : int
+    subgroup_n_tile_count : int
+    subgroup_k_tile_count : int
+
 def create_template(filename):
-    template = ''
+    template = f''
     with open(filename, 'r') as f:
         template = f.readlines()
     return template
 
-def apply_params(template, configuration):
+def get_transform_function(M, N, K, configuration : Configuration):
+    m, n, k = configuration.tile_sizes
+    wg_x, wg_y, wg_z = configuration.workgroup_size
+    return f'''Transform script:
+transform.named_sequence @match_mmt_{M}x{N}x{K}(%matmul: !transform.any_op {{transform.readonly}}) -> (!transform.any_op, !transform.any_param) {{
+  %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
+  %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
+  %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
+  transform.iree.match.cast_compatible_type %lhs = tensor<{M}x{K}xf16> : !transform.any_value
+  transform.iree.match.cast_compatible_type %rhs = tensor<{N}x{K}xf16> : !transform.any_value
+  %config = transform.param.constant #iree_codegen.compilation_info<
+    lowering_config = #iree_codegen.lowering_config<tile_sizes = [[{m}, {n}, {k}]]>,
+    translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+      {{mma_schedule = #iree_gpu.mma_schedule<
+        intrinsic = {configuration.intrinsic},
+        subgroup_m_count = {configuration.subgroup_m_count}, subgroup_n_count = {configuration.subgroup_n_count},
+        subgroup_m_tile_count = {configuration.subgroup_m_tile_count},
+        subgroup_n_tile_count = {configuration.subgroup_n_tile_count},
+        subgroup_k_tile_count = {configuration.subgroup_k_tile_count}>}}>,
+    workgroup_size = [{wg_x}, {wg_y}, {wg_z}], subgroup_size = {configuration.subgroup_size}
+   > -> !transform.any_param
+  transform.yield %matmul, %config : !transform.any_op, !transform.any_param
+}}
+'''
+
+def apply_params(M, N, K, template, configuration):
     params = asdict(configuration)
     keys = list(params.keys())
     expr = re.compile(r'intrinsic = #iree_gpu.mfma_layout<([0-9A-Za-z_]+)>, subgroup_m_count = ([0-9]+), subgroup_n_count = ([0-9]+), subgroup_m_tile_count = ([0-9]+), subgroup_n_tile_count = ([0-9]+), subgroup_k_tile_count = ([0-9]+)>}>, workgroup_size = \[([0-9]+) : index, ([0-9]+) : index, ([0-9]+) : index\]')
@@ -47,7 +85,7 @@ def apply_params(template, configuration):
 
     #print("Repl: ", repl)
     #print("Repl2: ", repl2)
-    modified = f'// {configuration}\n'
+    modified = indent(get_transform_function(M, N, K, configuration), '//   ')
     for line in template:
         if 'intrinsic' in line:
             line = re.sub(expr, repl, line)
@@ -81,57 +119,50 @@ def is_pow2(x, min, max):
 def is_not_pow2(x, min, max):
     return z3.And(list(x != 2 ** i for i in range(min, max + 1)))
 
-def generate_constraints(problem_size, tile_sizes, subgroup_size, workgroup_size,
+def generate_constraints(problem_size, tile_sizes, subgroup_size, intrinsic_size, workgroup_size,
                          subgroup_m_count, subgroup_n_count,
                          subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
     M, N, K = problem_size
     m, n, k = tile_sizes
+    intrinsic_mn, intrinsic_k = intrinsic_size
     wg_x, wg_y, wg_z = workgroup_size
     constraints = [subgroup_size == 64, wg_x * wg_y * wg_z <= 1024]
-    mma_intrinsic_size = 16
+    constraints += [z3.Or(z3.And(intrinsic_mn == 16, intrinsic_k == 16),
+                          z3.And(intrinsic_mn == 32, intrinsic_k == 8))]
     subgroup_k_count = 1
-    constraints += [m >= 1, m <= 600, m <= M, M == m * z3.FreshInt()]
-    constraints += [n >= 1, n <= 600, n <= N, N == n * z3.FreshInt()]
-    constraints += [k >= 1, k <= 600, k <= K, K == k * z3.FreshInt()]
+    constraints += [m >= intrinsic_mn, m <= 512, m <= M, M == m * z3.FreshInt()]
+    constraints += [n >= intrinsic_mn, n <= 512, n <= N, N == n * z3.FreshInt()]
+    constraints += [k >= intrinsic_k, k <= 512, k <= K, K == k * z3.FreshInt()]
     for x in (subgroup_m_count, subgroup_n_count):
         constraints += [x >= 1, x <= 32]
     for x in (subgroup_m_tile_count, subgroup_n_tile_count, subgroup_k_tile_count):
         constraints += [x >= 1, x <= 32]
     
-    constraints += [m == subgroup_m_count * subgroup_m_tile_count * mma_intrinsic_size]
-    constraints += [n == subgroup_n_count * subgroup_n_tile_count * mma_intrinsic_size]
-    constraints += [k == subgroup_k_count * subgroup_k_tile_count * mma_intrinsic_size]
+    constraints += [m == subgroup_m_count * subgroup_m_tile_count * intrinsic_mn]
+    constraints += [n == subgroup_n_count * subgroup_n_tile_count * intrinsic_mn]
+    constraints += [k == subgroup_k_count * subgroup_k_tile_count * intrinsic_k]
     constraints += [wg_x == subgroup_size * subgroup_n_count]
     constraints += [wg_y == subgroup_m_count]
     constraints += [wg_z == subgroup_k_count]
     return constraints
 
-@dataclass
-class Configuration:
-    subgroup_size : int
-    workgroup_size : list[int]
-    intrinsic : str
-    tile_sizes : list[int]
-    subgroup_m_count : int
-    subgroup_n_count : int
-    subgroup_m_tile_count : int
-    subgroup_n_tile_count : int
-    subgroup_k_tile_count : int
-
 def generate_solutions(M, N, K):
     m, n, k = z3.Int('m'), z3.Int('n'), z3.Int('k')
     subgroup_size = z3.Int('subgroup_size')
+    intrinsic_mn = z3.Int('intrinsic_mn')
+    intrinsic_k = z3.Int('intrinsic_k')
     wg_x, wg_y, wg_z = z3.Int('wg_x'), z3.Int('wg_y'), z3.Int('wg_z')
     sg_m_cnt = z3.Int('sg_m_cnt')
     sg_n_cnt = z3.Int('sg_n_cnt')
     sg_m_tcnt = z3.Int('sg_m_tcnt')
     sg_n_tcnt = z3.Int('sg_n_tcnt')
     sg_k_tcnt = z3.Int('sg_k_tcnt')
-    all_vars = [m, n, k, subgroup_size, wg_x, wg_y, wg_z,
+    all_vars = [m, n, k, subgroup_size, intrinsic_mn, intrinsic_k, wg_x, wg_y, wg_z,
                 sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt]
 
     solver = z3.Solver()
-    constraints = generate_constraints([M, N, K], [m, n, k], subgroup_size, [wg_x, wg_y, wg_z],
+    constraints = generate_constraints([M, N, K], [m, n, k], subgroup_size, [intrinsic_mn, intrinsic_k],
+                                       [wg_x, wg_y, wg_z],
                                        sg_m_cnt, sg_n_cnt, sg_m_tcnt, sg_n_tcnt, sg_k_tcnt)
     solver.add(z3.simplify(z3.And(constraints)))
     logging.debug(f'Initial constraints: {solver}')
@@ -141,10 +172,9 @@ def generate_solutions(M, N, K):
         lookup = lambda var: model[var].as_long()
 
         config = Configuration(lookup(subgroup_size), [lookup(wg_x), lookup(wg_y), lookup(wg_z)],
-                               '#iree_gpu.mfma_layout<F16_16x16x16_F32>',
+                               f'#iree_gpu.mfma_layout<F16_{lookup(intrinsic_mn)}x{lookup(intrinsic_mn)}x{lookup(intrinsic_k)}_F32>',
                                [lookup(m), lookup(n), lookup(k)], lookup(sg_m_cnt), lookup(sg_n_cnt),
                                lookup(sg_m_tcnt), lookup(sg_n_tcnt), lookup(sg_k_tcnt))
-        print(f'Solution #{i}: {config}')
         solver.add(z3.simplify(z3.Not(z3.And(list(x == model[x] for x in all_vars)))))
         i += 1
         yield config
@@ -167,7 +197,8 @@ if __name__ == '__main__':
     for i, config in enumerate(generate_solutions(M, N, K)):
         if i >= args.limit:
             break
-        new_mlir = apply_params(template, config)
+        print(f'Solution #{i}: {config}')
+        new_mlir = apply_params(M, N, K, template, config)
 
         with open(path.join(args.output, f'{i}.mlir') , 'w') as f:
             f.write(new_mlir)

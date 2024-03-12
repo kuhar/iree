@@ -1,52 +1,29 @@
 // Transform dialect specification for attention on MI300 with MFMA.
 // This script only supports variants of attention with a sequence
 // length that is a multiple of 64. There are two near duplicate
-// scripts because when the sequence length is exactly 64, some transformations
-// degenerate causing the script to fail due to invalid handles.
+// because we need different tile sizes when the head dimension is 512.
+// TODO: Figure out how to parameterize the tile sizes without duplicating
+// the attention function.
 
-#layout = #iree_gpu.mfma_layout<F16_16x16x16_F32>
-
-
-#tile_sizes1 = #iree_codegen.lowering_config<tile_sizes = [[64, 80, 64]]>
-#schedule1 = #iree_gpu.mma_schedule<
-      intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
-      subgroup_m_count = 2, subgroup_n_count = 1,
-      subgroup_m_tile_count = 2, subgroup_n_tile_count = 5, subgroup_k_tile_count = 4>
-#trans1 = #iree_codegen.translation_info<LLVMGPUVectorDistribute, {mma_schedule = #schedule1}>
-#comp_info1 = #iree_codegen.compilation_info<
-                lowering_config = #tile_sizes1,
-                translation_info = #trans1,
-                workgroup_size = [64, 2, 1],
-                subgroup_size = 64
-             >
-
-#tile_sizes2 = #iree_codegen.lowering_config<tile_sizes = [[128, 128, 32]]>
-#schedule2 = #iree_gpu.mma_schedule<
-      intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
-      subgroup_m_count = 2, subgroup_n_count = 2,
-      subgroup_m_tile_count = 4, subgroup_n_tile_count = 4, subgroup_k_tile_count = 2>
-#trans2 = #iree_codegen.translation_info<LLVMGPUVectorDistribute, {mma_schedule = #schedule2}>
-#comp_info2 = #iree_codegen.compilation_info<
-                lowering_config = #tile_sizes2,
-                translation_info = #trans2,
-                workgroup_size = [128, 2, 1],
-                subgroup_size = 64
-             >
-
-#schedule3 = #iree_gpu.mma_schedule<
-      intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
-      subgroup_m_count = 2, subgroup_n_count = 2,
-      subgroup_m_tile_count = 2, subgroup_n_tile_count = 5, subgroup_k_tile_count = 4>
-#trans3 = #iree_codegen.translation_info<LLVMGPUVectorDistribute, {mma_schedule = #schedule3}>
-#comp_info3 = #iree_codegen.compilation_info<
-                lowering_config = #iree_codegen.lowering_config<tile_sizes = [[64, 160, 64]]>,
-                translation_info = #trans3,
-                workgroup_size = [128, 2, 1],
-                subgroup_size = 64
-             >
+// #layout = #iree_gpu.mfma_layout<F16_16x16x16_F32>
+#layout = #iree_gpu.mfma_layout<F16_32x32x8_F32>
 
 module attributes { transform.with_named_sequence } {
 
+  // Utility matching for finding all undistributed fills.
+  transform.named_sequence @matcher(%arg0: !transform.any_op {transform.readonly}) -> !transform.any_op {
+    transform.match.operation_name %arg0 ["linalg.fill"] : !transform.any_op
+    %0 = transform.get_parent_op %arg0 {allow_empty_results, nth_parent = 2 : i64, op_name = "scf.forall"} : (!transform.any_op) -> !transform.any_op
+    transform.match.operation_empty %0 : !transform.any_op
+    transform.yield %arg0 : !transform.any_op
+  }
+
+  transform.named_sequence @get_undistributed_fills(%arg0: !transform.any_op {transform.readonly}) -> !transform.any_op {
+    %0 = transform.collect_matching @matcher in %arg0 : (!transform.any_op) -> !transform.any_op
+    transform.yield %0 : !transform.any_op
+  }
+
+  // Script for FA2 transform pipeline when head_dim % 64 = 0.
   transform.named_sequence @__attention_main(%variant_op: !transform.any_op {transform.consumed}) {
     // Get attention op
     // ==========================================
@@ -80,9 +57,9 @@ module attributes { transform.with_named_sequence } {
     %attention4 = transform.structured.match ops{["iree_linalg_ext.attention"]} in %variant_op : (!transform.any_op) -> !transform.any_op
     %acc_fill, %max_fill, %sum_fill, %inner_loop, %final_scaling, %last_truncate, %blocked_attention = transform.iree.tile_attention %attention4 {tile_size = 64} :
       (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
-    %fill_op, %first_matmul, %reduce_max, %partial_softmax, %scale_factor, %update, %reduce_sum, %truncate, %scale_acc, %second_matmul
+    %scale_q, %fill_op, %first_matmul, %reduce_max, %partial_softmax, %scale_factor, %update, %reduce_sum, %truncate, %scale_acc, %second_matmul
         = transform.iree.decompose_tiled_attention %blocked_attention {tile_size = 64} :
-      (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
+      (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
 
     // Promote key and value operands
     // ==========================================
@@ -127,9 +104,18 @@ module attributes { transform.with_named_sequence } {
     } : !transform.any_op
     transform.apply_cse to %func : !transform.any_op
 
+    %f10, %loop10 = transform.structured.fuse_into_containing_op %scale_q into %loop9 : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
+
+    transform.apply_patterns to %func {
+      transform.apply_patterns.canonicalization
+    } : !transform.any_op
+    transform.apply_cse to %func : !transform.any_op
+
     // Distribute fills
     // ==========================================
-    %fills = transform.merge_handles %acc_fill, %max_fill, %sum_fill : !transform.any_op
+
+    // Get all fills that haven't been distributed to warps.
+    %fills = transform.include @get_undistributed_fills failures(propagate) (%variant_op)  : (!transform.any_op) -> !transform.any_op
     %tiled_fill, %fill_grid = transform.structured.tile_using_forall %fills tile_sizes[32] (mapping = [#gpu.warp<linear_dim_0>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 
     // Distribute last_truncate and fuse final_scaling into it
@@ -232,7 +218,8 @@ module attributes { transform.with_named_sequence } {
     transform.yield
   }
 
-  transform.named_sequence @__attention_main_len_64(%variant_op: !transform.any_op {transform.consumed}) {
+  // Script for FA2 transform pipeline for head_dim = 512.
+  transform.named_sequence @__attention_main_len_512(%variant_op: !transform.any_op {transform.consumed}) {
     // Get attention op
     // ==========================================
     %attention = transform.structured.match ops{["iree_linalg_ext.attention"]} in %variant_op : (!transform.any_op) -> !transform.any_op
@@ -263,11 +250,11 @@ module attributes { transform.with_named_sequence } {
     // Tile and decompose attention
     // ==========================================
     %attention4 = transform.structured.match ops{["iree_linalg_ext.attention"]} in %variant_op : (!transform.any_op) -> !transform.any_op
-    %acc_fill, %max_fill, %sum_fill, %inner_loop, %final_scaling, %last_truncate, %blocked_attention = transform.iree.tile_attention %attention4 {tile_size = 64} :
+    %acc_fill, %max_fill, %sum_fill, %inner_loop, %final_scaling, %last_truncate, %blocked_attention = transform.iree.tile_attention %attention4 {tile_size = 32} :
       (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
-    %fill_op, %first_matmul, %reduce_max, %partial_softmax, %scale_factor, %update, %reduce_sum, %truncate, %scale_acc, %second_matmul
-        = transform.iree.decompose_tiled_attention %blocked_attention {tile_size = 64} :
-      (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
+    %scale_q, %fill_op, %first_matmul, %reduce_max, %partial_softmax, %scale_factor, %update, %reduce_sum, %truncate, %scale_acc, %second_matmul
+        = transform.iree.decompose_tiled_attention %blocked_attention {tile_size = 32} :
+      (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
 
     // Promote key and value operands
     // ==========================================
@@ -312,9 +299,18 @@ module attributes { transform.with_named_sequence } {
     } : !transform.any_op
     transform.apply_cse to %func : !transform.any_op
 
+    %f10, %loop10 = transform.structured.fuse_into_containing_op %scale_q into %loop9 : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
+
+    transform.apply_patterns to %func {
+      transform.apply_patterns.canonicalization
+    } : !transform.any_op
+    transform.apply_cse to %func : !transform.any_op
+
     // Distribute fills
     // ==========================================
-    %fills = transform.merge_handles %max_fill, %sum_fill : !transform.any_op
+
+    // Get all fills that haven't been distributed to warps.
+    %fills = transform.include @get_undistributed_fills failures(propagate) (%variant_op)  : (!transform.any_op) -> !transform.any_op
     %tiled_fill, %fill_grid = transform.structured.tile_using_forall %fills tile_sizes[32] (mapping = [#gpu.warp<linear_dim_0>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 
     // Distribute last_truncate and fuse final_scaling into it
@@ -394,6 +390,7 @@ module attributes { transform.with_named_sequence } {
     transform.iree.amdgpu_distribute_vectors %distribute_func : !transform.any_op
 
     %distribute_func_2 = transform.structured.match ops{["func.func"]} in %variant_op_3 : (!transform.any_op) -> !transform.any_op
+
     transform.apply_patterns to %distribute_func_2 {
       transform.apply_patterns.canonicalization
     } : !transform.any_op
@@ -417,18 +414,18 @@ module attributes { transform.with_named_sequence } {
   }
 
   // Send it down a custom transform dialect pipeline.
-  transform.named_sequence @custom_attention_len_64(%attention: !transform.any_op {transform.readonly}) {
+  transform.named_sequence @custom_attention_len_512(%attention: !transform.any_op {transform.readonly}) {
     %variant_op = transform.get_parent_op %attention {op_name = "hal.executable.variant"} : (!transform.any_op) -> !transform.any_op
     %exports = transform.structured.match ops{["hal.executable.export"]} in %variant_op : (!transform.any_op) -> !transform.any_op
-    %attn = transform.param.constant #iree_codegen.translation_info<TransformDialectCodegen codegen_spec = @__attention_main_len_64, {"amdgpu-waves-per-eu" = 2}> -> !transform.any_param
+    %attn = transform.param.constant #iree_codegen.translation_info<TransformDialectCodegen codegen_spec = @__attention_main_len_512, {"amdgpu-waves-per-eu" = 2}> -> !transform.any_param
     transform.annotate %exports "translation_info" = %attn : !transform.any_op, !transform.any_param
     transform.yield
   }
 
-  transform.named_sequence @match_attention_len_64(%attention: !transform.any_op {transform.readonly}) -> (!transform.any_op) {
+  transform.named_sequence @match_attention_len_512(%attention: !transform.any_op {transform.readonly}) -> (!transform.any_op) {
     transform.match.operation_name %attention ["iree_linalg_ext.attention"] : !transform.any_op
     %in0 = transform.get_operand %attention[0] : (!transform.any_op) -> !transform.any_value
-    transform.iree.match.cast_compatible_type %in0 = tensor<?x?x64xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %in0 = tensor<?x?x512xf16> : !transform.any_value
     transform.yield %attention : !transform.any_op
   }
 
@@ -469,6 +466,25 @@ module attributes { transform.with_named_sequence } {
     } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
     transform.yield %root : !transform.any_op
   }
+
+  transform.named_sequence @match_mmt_f16_f16_f16(%root: !transform.any_op {transform.readonly}) -> (!transform.any_op) {
+    transform.match.operation_name %root ["linalg.generic"] : !transform.any_op
+    // transform.print %root {name = "Generic"} : !transform.any_op
+    %ins, %outs = transform.iree.match.cast_compatible_dag_from_root %root {
+      ^bb0(%lhs: tensor<?x?xf16>, %rhs: tensor<?x?xf16>, %out: tensor<?x?xf16>):
+      %7 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>,
+                                            affine_map<(d0, d1, d2) -> (d1, d2)>,
+                                            affine_map<(d0, d1, d2) -> (d0, d1)>],
+                           iterator_types = ["parallel", "parallel", "reduction"]}
+          ins(%lhs, %rhs : tensor<?x?xf16>, tensor<?x?xf16>) outs(%out : tensor<?x?xf16>) {
+        ^bb0(%in: f16, %in_0: f16, %acc: f16):
+          %10 = arith.mulf %in, %in_0 : f16
+          %11 = arith.addf %acc, %10 : f16
+          linalg.yield %11 : f16
+        } -> tensor<?x?xf16>
+    } : (!transform.any_op) -> (!transform.any_value, !transform.any_value)
+    transform.yield %root : !transform.any_op
+  }
   
   transform.named_sequence @apply_mmt_config(%matmul: !transform.any_op {transform.readonly}, %config: !transform.any_param {transform.readonly}) {
     transform.annotate %matmul "compilation_info" = %config : !transform.any_op, !transform.any_param
@@ -476,46 +492,114 @@ module attributes { transform.with_named_sequence } {
     transform.yield
   }
 
-  transform.named_sequence @match_mmt_2048x1280x1280(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
-    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul)
-        : (!transform.any_op) -> !transform.any_op
-    %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
-    %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
-    transform.iree.match.cast_compatible_type %lhs = tensor<2048x1280xf16> : !transform.any_value
-    transform.iree.match.cast_compatible_type %rhs = tensor<1280x1280xf16> : !transform.any_value
-    %config = transform.param.constant #comp_info1 -> !transform.any_param
-    transform.yield %matmul, %config : !transform.any_op, !transform.any_param
-  }
-
   transform.named_sequence @match_mmt_2048x10240x1280(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
-    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul)
-        : (!transform.any_op) -> !transform.any_op
+    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
     %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
     %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
     transform.iree.match.cast_compatible_type %lhs = tensor<2048x1280xf16> : !transform.any_value
     transform.iree.match.cast_compatible_type %rhs = tensor<10240x1280xf16> : !transform.any_value
-    %config = transform.param.constant #comp_info2 -> !transform.any_param
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[128, 128, 32]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 2,
+          subgroup_m_tile_count = 4,
+          subgroup_n_tile_count = 4,
+          subgroup_k_tile_count = 2>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
+    transform.yield %matmul, %config : !transform.any_op, !transform.any_param
+  }
+
+  transform.named_sequence @match_mmt_2048x1280x1280(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
+    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
+    %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
+    %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
+    transform.iree.match.cast_compatible_type %lhs = tensor<2048x1280xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %rhs = tensor<1280x1280xf16> : !transform.any_value
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[64, 80, 64]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 1,
+          subgroup_m_tile_count = 2,
+          subgroup_n_tile_count = 5,
+          subgroup_k_tile_count = 4>}>,
+      workgroup_size = [64, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
     transform.yield %matmul, %config : !transform.any_op, !transform.any_param
   }
 
   transform.named_sequence @match_mmt_2048x1280x5120(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
-    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul)
-        : (!transform.any_op) -> !transform.any_op
+    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
     %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
     %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
     transform.iree.match.cast_compatible_type %lhs = tensor<2048x5120xf16> : !transform.any_value
     transform.iree.match.cast_compatible_type %rhs = tensor<1280x5120xf16> : !transform.any_value
-    %config = transform.param.constant #comp_info3 -> !transform.any_param
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[64, 160, 64]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 2,
+          subgroup_m_tile_count = 2,
+          subgroup_n_tile_count = 5,
+          subgroup_k_tile_count = 4>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
+    transform.yield %matmul, %config : !transform.any_op, !transform.any_param
+  }
+
+  transform.named_sequence @match_mmt_128x1280x2048(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
+    %mmt = transform.include @match_mmt_f16_f16_f16 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
+    %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
+    %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
+    transform.iree.match.cast_compatible_type %lhs = tensor<128x2048xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %rhs = tensor<1280x2048xf16> : !transform.any_value
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[32, 32, 256]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 2,
+          subgroup_m_tile_count = 1,
+          subgroup_n_tile_count = 1,
+          subgroup_k_tile_count = 16>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
+    transform.yield %matmul, %config : !transform.any_op, !transform.any_param
+  }
+
+  transform.named_sequence @match_mmt_8192x5120x640(%matmul: !transform.any_op {transform.readonly}) -> (!transform.any_op, !transform.any_param) {
+    %mmt = transform.include @match_mmt_f16_f16_f32 failures(propagate) (%matmul) : (!transform.any_op) -> !transform.any_op
+    %lhs = transform.get_operand %matmul[0] : (!transform.any_op) -> !transform.any_value
+    %rhs = transform.get_operand %matmul[1] : (!transform.any_op) -> !transform.any_value
+    transform.iree.match.cast_compatible_type %lhs = tensor<8192x640xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %rhs = tensor<5120x640xf16> : !transform.any_value
+    %config = transform.param.constant #iree_codegen.compilation_info<
+      lowering_config = #iree_codegen.lowering_config<tile_sizes = [[128, 128, 32]]>,
+      translation_info = #iree_codegen.translation_info<LLVMGPUVectorDistribute,
+        {mma_schedule = #iree_gpu.mma_schedule<
+          intrinsic = #iree_gpu.mfma_layout<F16_16x16x16_F32>,
+          subgroup_m_count = 2, subgroup_n_count = 2,
+          subgroup_m_tile_count = 4,
+          subgroup_n_tile_count = 4,
+          subgroup_k_tile_count = 2>}>,
+      workgroup_size = [128, 2, 1], subgroup_size = 64
+     > -> !transform.any_param
     transform.yield %matmul, %config : !transform.any_op, !transform.any_param
   }
 
   transform.named_sequence @__kernel_config(%variant_op: !transform.any_op {transform.consumed}) {
     transform.foreach_match in %variant_op
-        // @match_matmul -> @print_matmul,
-        @match_mmt_2048x1280x1280 -> @apply_mmt_config,
         @match_mmt_2048x10240x1280 -> @apply_mmt_config,
+        @match_mmt_2048x1280x1280 -> @apply_mmt_config,
         @match_mmt_2048x1280x5120 -> @apply_mmt_config,
-        @match_attention_len_64 -> @custom_attention_len_64,
+        @match_mmt_128x1280x2048 -> @apply_mmt_config,
+        @match_mmt_8192x5120x640 -> @apply_mmt_config,
+        @match_attention_len_512 -> @custom_attention_len_512,
         @match_attention -> @custom_attention
       : (!transform.any_op) -> (!transform.any_op)
     transform.yield
