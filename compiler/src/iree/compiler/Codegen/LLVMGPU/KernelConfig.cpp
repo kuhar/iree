@@ -30,6 +30,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Matchers.h"
@@ -2016,12 +2017,23 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
 // determined based on the op.
 static void propagateLoweringConfig(Operation *rootOperation,
                                     SmallVector<Operation *> computeOps) {
+  Attribute problemSize;
+  if (auto generic = dyn_cast<linalg::GenericOp>(rootOperation)) {
+    if (generic->getNumResults() == 1) {
+      auto resultTy = cast<TensorType>(generic.getResult(0).getType());
+      ArrayRef shape = resultTy.getShape();
+      problemSize = DenseI64ArrayAttr::get(generic->getContext(), shape);
+      generic->setAttr("problem_size", problemSize);
+    }
+  }
   if (IREE::Codegen::LoweringConfigAttr config =
           getLoweringConfig(rootOperation)) {
     for (auto op : computeOps) {
       if (op == rootOperation)
         continue;
       setLoweringConfig(op, config);
+      if (problemSize)
+        op->setAttr("problem_size", problemSize);
     }
   }
 }

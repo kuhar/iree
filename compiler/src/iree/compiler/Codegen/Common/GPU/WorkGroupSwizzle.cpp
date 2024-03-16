@@ -4,16 +4,24 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <sched.h>
 #include <cassert>
+#include <cstdint>
 #include "iree/compiler/Codegen/Common/GPU/Passes.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Common/GPU/PassDetail.h"
 #include "iree/compiler/Codegen/Utils/Utils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+#include "mlir/Support/LogicalResult.h"
 
 #define DEBUG_TYPE "iree-codegen-reorder-workgroups"
 
@@ -55,11 +63,34 @@ LogicalResult swizzleWorkgroupsInFunc(mlir::FunctionOpInterface funcOp,
       ++numYIdOps;
     }
   });
-
   if (numXIdOps != 1 || numYIdOps != 1) {
     LLVM_DEBUG(llvm::dbgs() << "Could not find X or Y\n");
     return failure();
   }
+
+  auto entryPoint = getEntryPoint(funcOp);
+  if (failed(entryPoint))
+    return failure();
+  auto workgroupSz = entryPoint->getWorkgroupSizeAttr();
+  llvm::errs() << "Workgroup size: " << workgroupSz << "\n";
+
+  linalg::GenericOp generic;
+  DenseI64ArrayAttr problemSize;
+  funcOp.walk([&](linalg::GenericOp op) {
+    generic = op;
+    return WalkResult::interrupt();
+  });
+  if (!generic || !linalg::isaContractionOpInterface(generic)) {
+    return success();
+  }
+  problemSize = dyn_cast_or_null<DenseI64ArrayAttr>(generic->getAttr("problem_size"));
+  if (!problemSize)
+    return success();
+ 
+  ArrayRef<int64_t> MN = problemSize.asArrayRef();
+  llvm::errs() << "Matmul Size: [";
+  llvm::interleaveComma(MN, llvm::errs());
+  llvm::errs() << "]\n";
 
   OpBuilder builder(funcOp);
   builder.setInsertionPointToStart(&funcOp.front());
@@ -112,6 +143,10 @@ struct ReorderWorkgroupsPass final
                                  "workgroup counts. Bailing out.");
       return;
     }
+
+    llvm::errs() << "--- Workgroup counts: [";
+    llvm::interleaveComma(workgroupCount, llvm::errs());
+    llvm::errs() << "] ---\n";
 
     LLVM_DEBUG({
       llvm::dbgs() << "--- Before reorder workgroups with workgroup counts: [";
