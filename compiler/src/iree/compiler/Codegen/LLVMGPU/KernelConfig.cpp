@@ -37,6 +37,7 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LogicalResult.h"
 
 namespace mlir::iree_compiler {
 
@@ -629,6 +630,10 @@ setMatmulVectorDistributionConfig(mlir::FunctionOpInterface entryPoint,
   attrs.emplace_back(
       StringAttr::get(context, IREE::GPU::MMAScheduleAttr::getMnemonic()),
       scheduleAttr);
+  // if (nSize > mSize) {
+  //   attrs.emplace_back(StringAttr::get(context, "transpose_workgroups"),
+  //                      UnitAttr::get(context));
+  // }
   auto configDict = DictionaryAttr::get(context, attrs);
 
   return setOpConfigAndEntryPointFnTranslation(

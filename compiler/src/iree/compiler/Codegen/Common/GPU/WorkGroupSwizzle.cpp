@@ -71,27 +71,13 @@ LogicalResult swizzleWorkgroupsInFunc(mlir::FunctionOpInterface funcOp,
   auto entryPoint = getEntryPoint(funcOp);
   if (failed(entryPoint))
     return failure();
-  auto workgroupSz = entryPoint->getWorkgroupSizeAttr();
-  llvm::errs() << "Workgroup size: " << workgroupSz << "\n";
-
-  linalg::GenericOp generic;
-  DenseI64ArrayAttr problemSize;
-  funcOp.walk([&](linalg::GenericOp op) {
-    generic = op;
-    return WalkResult::interrupt();
-  });
-  if (!generic || !linalg::isaContractionOpInterface(generic)) {
+  auto translationInfo = getTranslationInfo(*entryPoint);
+  if (!translationInfo.getConfiguration().contains("transpose_workgroups")) {
     return success();
   }
-  problemSize = dyn_cast_or_null<DenseI64ArrayAttr>(generic->getAttr("problem_size"));
-  if (!problemSize)
-    return success();
- 
-  ArrayRef<int64_t> MN = problemSize.asArrayRef();
-  llvm::errs() << "Matmul Size: [";
-  llvm::interleaveComma(MN, llvm::errs());
-  llvm::errs() << "]\n";
 
+  llvm::errs() << "Transposing workgroup order for: " << funcOp << "\n";
+  
   OpBuilder builder(funcOp);
   builder.setInsertionPointToStart(&funcOp.front());
   // We create two new workgroup ID ops at the very top of the function and use
