@@ -112,34 +112,62 @@ parseMmtReductionRatios(MLIRContext *ctx, llvm::ArrayRef<std::string> specs) {
 }
 
 static bool matchesReductionConfig(linalg::LinalgOp op, const MmtReductionConfig& config) {
-  auto generic = dyn_cast<linalg::GenericOp>(op);
-  if (!generic)
-    return false;
   if (!linalg::isaContractionOpInterface(op) || op.getNumParallelLoops() != 2 ||
       op.getNumReductionLoops() != 1) {
     return false;
   }
 
-  int staticNonUnitParallelDimCount = 0;
   SmallVector<int64_t, 4> bounds = op.getStaticLoopRanges();
   FailureOr<mlir::linalg::ContractionDimensions> contractionDims =
       mlir::linalg::inferContractionDims(op);
   assert(succeeded(contractionDims) && "Could not infer contraction dims");
-  for (auto mDim : contractionDims->m) {
-    staticNonUnitParallelDimCount +=
-        bounds[mDim] != 1 && !ShapedType::isDynamic(bounds[mDim]);
-  }
-  for (auto nDim : contractionDims->n) {
-    staticNonUnitParallelDimCount +=
-        bounds[nDim] != 1 && !ShapedType::isDynamic(bounds[nDim]);
-  }
-  for (auto nDim : contractionDims->n) {
-    staticNonUnitParallelDimCount +=
-        bounds[nDim] != 1 && !ShapedType::isDynamic(bounds[nDim]);
-  }
 
-  if (staticNonUnitParallelDimCount <= 1)
+  int64_t mSize = 1, nSize = 1, kSize = 1, batchSize = 1;
+  for (auto mDim : contractionDims->m) {
+    if (ShapedType::isDynamic(bounds[mDim]))
+      return false;
+    mSize *= bounds[mDim];
+  }
+  if (mSize != config.m)
     return false;
+
+  for (auto nDim : contractionDims->n) {
+    if (ShapedType::isDynamic(bounds[nDim]))
+      return false;
+    nSize *= bounds[nDim];
+  }
+  if (nSize != config.n)
+    return false;
+
+  for (auto kDim : contractionDims->k) {
+    if (ShapedType::isDynamic(bounds[kDim]))
+      return false;
+    kSize *= bounds[kDim];
+  }
+  if (kSize != config.k)
+    return false;
+
+  for (auto bDim : contractionDims->batch) {
+    if (ShapedType::isDynamic(bounds[bDim]))
+      return false;
+    batchSize *= bounds[bDim];
+  }
+  if (batchSize != 1)
+    return false;
+
+  auto lhsType = cast<ShapedType>(op.getDpsInputOperand(0)->get().getType());
+  if (lhsType.getElementType() != config.operandType)
+    return false;
+
+  auto rhsType = cast<ShapedType>(op.getDpsInputOperand(1)->get().getType());
+  if (rhsType.getElementType() != config.operandType)
+    return false;
+
+  auto resultType = cast<ShapedType>(op->getResult(0).getType());
+  if (resultType.getElementType() != config.resultType)
+    return false;
+
+  return true;
 }
 
 inline static SmallVector<NamedAttribute>
@@ -197,18 +225,17 @@ struct SplitReductionPass : public SplitReductionBase<SplitReductionPass> {
     };
 
     SmallVector<linalg::LinalgOp> matmulCandidates;
-    DenseMap<linalg::LinalgOp, Attribute> matmulToConfig;
+    DenseMap<linalg::LinalgOp, int64_t> matmulToRatio;
     rootOp->walk([&](linalg::LinalgOp op) {
       if (!linalg::isaContractionOpInterface(op))
         return;
 
-      if (Attribute config =
-              op->getAttr("iree_flow_split_reduction_ratio")) {
-        LDBG("Found split reduction ratio override (" << config << ") for:\n"
-                                                      << op);
-        matmulToConfig[op] = config;
-        matmulCandidates.push_back(op);
-        return;
+      for (const auto &config : configs) {
+        if (matchesReductionConfig(op, config)) {
+          LDBG("Matched op to CLI ratio of " << config.reductionRatio << "\n"
+                                             << op);
+          matmulToRatio[op] = config.reductionRatio;
+        }
       }
 
       if (hasLargeK(op))
@@ -216,16 +243,15 @@ struct SplitReductionPass : public SplitReductionBase<SplitReductionPass> {
     });
 
     if (splitReductionRatio.getValue() <= 1 &&
-        topkSplitReductionRatio.empty() && matmulToConfig.empty()) {
+        topkSplitReductionRatio.empty() && matmulToRatio.empty()) {
         LDBG("Nothing to do, bailing out");
       return;
     }
 
     auto matmulSplitReductionControlFn =
         [&](linalg::LinalgOp op) -> linalg::SplitReductionOptions {
-      if (auto requestedRatio =
-              dyn_cast_or_null<IntegerAttr>(matmulToConfig.lookup(op))) {
-        return {requestedRatio.getInt(), 0, /*innerParallel=*/false};
+      if (int64_t requestedRatio = matmulToRatio.lookup(op)) {
+        return {requestedRatio, 0, /*innerParallel=*/false};
       }
 
       // For matmul make the new parallel dimension first so that it looks
