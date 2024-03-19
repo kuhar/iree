@@ -10,14 +10,22 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <cassert>
+#include <cstdint>
 #include "iree/compiler/Dialect/Flow/Transforms/PassDetail.h"
 #include "iree/compiler/Dialect/Flow/Transforms/Passes.h"
 #include "iree/compiler/Dialect/LinalgExt/Transforms/Passes.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/raw_ostream.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 
@@ -42,8 +50,8 @@ static llvm::cl::list<int64_t> topkSplitReductionRatio(
     llvm::cl::desc("comma separated list of split ratios"),
     llvm::cl::CommaSeparated);
 
-static llvm::cl::list<std::string> mmtReductionRatio(
-    "iree-flow-mmt-split-reduction",
+static llvm::cl::list<std::string> matmulReductionRatio(
+    "iree-flow-matmul-split-reduction",
     llvm::cl::desc("comma separated list of matmul split reduction configs in "
                    "the MxNxK_T0_T1=ratio format, e.g., "
                    "'2048x1280x5120_f16_f32=4'"),
@@ -55,10 +63,83 @@ struct MmtReductionConfig {
   int64_t k;
   Type operandType;
   Type resultType;
+  int64_t reductionRatio;
 };
 
-static SmallVector<MmtReductionConfig> parseMmtReductionRatios(MLIRContext *ctx, llvm::ArrayRef<std::string> configs) {
-  return {};
+static llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                     const MmtReductionConfig &config) {
+  return os << "[" << config.m << ", " << config.n << ", " << config.k << "]("
+            << config.operandType << " -> " << config.resultType
+            << ") ==> ratio " << config.reductionRatio;
+}
+
+static MmtReductionConfig parseReductionSpec(MLIRContext *ctx, StringRef spec) {
+  MmtReductionConfig config = {};
+  auto parts = llvm::to_vector_of<StringRef>(llvm::split(spec, '='));
+  assert(parts.size() == 2);
+  bool status = llvm::to_integer(parts.back(), config.reductionRatio);
+  (void)status;
+  assert(status);
+  StringRef typedShape = parts.front();
+  parts = llvm::to_vector_of<StringRef>(llvm::split(typedShape, '_'));
+  assert(parts.size() == 3);
+
+  auto strToType = [ctx](StringRef typeName) {
+    assert(typeName == "f16" || typeName == "f32");
+    return (typeName == "f16") ? FloatType::getF16(ctx)
+                               : FloatType::getF32(ctx);
+  };
+  config.operandType = strToType(parts[1]);
+  config.resultType = strToType(parts[2]);
+
+  StringRef shapeStr = parts.front();
+  parts = llvm::to_vector_of<StringRef>(llvm::split(shapeStr, 'x'));
+  assert(parts.size() == 3);
+  status = llvm::to_integer(parts[0], config.m);
+  assert(status);
+  status = llvm::to_integer(parts[1], config.n);
+  assert(status);
+  status = llvm::to_integer(parts[2], config.k);
+  assert(status);
+
+  return config;
+}
+
+static SmallVector<MmtReductionConfig>
+parseMmtReductionRatios(MLIRContext *ctx, llvm::ArrayRef<std::string> specs) {
+  return llvm::map_to_vector(
+      specs, [ctx](StringRef spec) { return parseReductionSpec(ctx, spec); });
+}
+
+static bool matchesReductionConfig(linalg::LinalgOp op, const MmtReductionConfig& config) {
+  auto generic = dyn_cast<linalg::GenericOp>(op);
+  if (!generic)
+    return false;
+  if (!linalg::isaContractionOpInterface(op) || op.getNumParallelLoops() != 2 ||
+      op.getNumReductionLoops() != 1) {
+    return false;
+  }
+
+  int staticNonUnitParallelDimCount = 0;
+  SmallVector<int64_t, 4> bounds = op.getStaticLoopRanges();
+  FailureOr<mlir::linalg::ContractionDimensions> contractionDims =
+      mlir::linalg::inferContractionDims(op);
+  assert(succeeded(contractionDims) && "Could not infer contraction dims");
+  for (auto mDim : contractionDims->m) {
+    staticNonUnitParallelDimCount +=
+        bounds[mDim] != 1 && !ShapedType::isDynamic(bounds[mDim]);
+  }
+  for (auto nDim : contractionDims->n) {
+    staticNonUnitParallelDimCount +=
+        bounds[nDim] != 1 && !ShapedType::isDynamic(bounds[nDim]);
+  }
+  for (auto nDim : contractionDims->n) {
+    staticNonUnitParallelDimCount +=
+        bounds[nDim] != 1 && !ShapedType::isDynamic(bounds[nDim]);
+  }
+
+  if (staticNonUnitParallelDimCount <= 1)
+    return false;
 }
 
 inline static SmallVector<NamedAttribute>
@@ -95,6 +176,11 @@ struct SplitReductionPass : public SplitReductionBase<SplitReductionPass> {
     MLIRContext *context = &getContext();
     Operation *rootOp = getOperation();
     LDBG("=== Before Split Reduction ===");
+
+    SmallVector<MmtReductionConfig> configs = parseMmtReductionRatios(context, matmulReductionRatio);
+    LDBG("Found " << configs.size() << " split reduction configs: ");
+    LLVM_DEBUG(for (const auto &config
+                    : configs) { llvm::dbgs() << "\t" << config << "\n"; });
 
     auto hasLargeK = [&](linalg::LinalgOp op) -> bool {
       SmallVector<unsigned> dims;
