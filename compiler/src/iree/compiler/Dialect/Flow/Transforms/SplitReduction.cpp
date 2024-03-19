@@ -13,10 +13,17 @@
 #include "iree/compiler/Dialect/Flow/Transforms/PassDetail.h"
 #include "iree/compiler/Dialect/Flow/Transforms/Passes.h"
 #include "iree/compiler/Dialect/LinalgExt/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/Support/LLVM.h"
+
+#define DEBUG_TYPE "iree-flow-split-reduction"
+#define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "]: ")
+#define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
 
 namespace mlir::iree_compiler::IREE::Flow {
 
@@ -34,6 +41,25 @@ static llvm::cl::list<int64_t> topkSplitReductionRatio(
     "iree-flow-topk-split-reduction",
     llvm::cl::desc("comma separated list of split ratios"),
     llvm::cl::CommaSeparated);
+
+static llvm::cl::list<std::string> mmtReductionRatio(
+    "iree-flow-mmt-split-reduction",
+    llvm::cl::desc("comma separated list of matmul split reduction configs in "
+                   "the MxNxK_T0_T1=ratio format, e.g., "
+                   "'2048x1280x5120_f16_f32=4'"),
+    llvm::cl::CommaSeparated);
+
+struct MmtReductionConfig {
+  int64_t m;
+  int64_t n;
+  int64_t k;
+  Type operandType;
+  Type resultType;
+};
+
+static SmallVector<MmtReductionConfig> parseMmtReductionRatios(MLIRContext *ctx, llvm::ArrayRef<std::string> configs) {
+  return {};
+}
 
 inline static SmallVector<NamedAttribute>
 getPrunedAttributeList(linalg::LinalgOp op) {
@@ -66,20 +92,10 @@ struct SplitReductionPass : public SplitReductionBase<SplitReductionPass> {
   }
 
   void runOnOperation() override {
-
-    if (splitReductionRatio.getValue() <= 1 &&
-        topkSplitReductionRatio.empty()) {
-      return;
-    }
-
     MLIRContext *context = &getContext();
-    auto funcOp = getOperation();
-    auto matmulSplitReductionControlFn =
-        [&](linalg::LinalgOp op) -> linalg::SplitReductionOptions {
-      // For matmul make the new parallel dimension first so that it looks
-      // like a batch_matmul and can follow the same codegen.
-      return {int64_t(splitReductionRatio), 0, /*innerParallel=*/false};
-    };
+    Operation *rootOp = getOperation();
+    LDBG("=== Before Split Reduction ===");
+
     auto hasLargeK = [&](linalg::LinalgOp op) -> bool {
       SmallVector<unsigned> dims;
       op.getReductionDims(dims);
@@ -95,11 +111,43 @@ struct SplitReductionPass : public SplitReductionBase<SplitReductionPass> {
     };
 
     SmallVector<linalg::LinalgOp> matmulCandidates;
-    IRRewriter rewriter(context);
-    funcOp->walk([&](linalg::LinalgOp op) {
-      if (linalg::isaContractionOpInterface(op) && hasLargeK(op))
+    DenseMap<linalg::LinalgOp, Attribute> matmulToConfig;
+    rootOp->walk([&](linalg::LinalgOp op) {
+      if (!linalg::isaContractionOpInterface(op))
+        return;
+
+      if (Attribute config =
+              op->getAttr("iree_flow_split_reduction_ratio")) {
+        LDBG("Found split reduction ratio override (" << config << ") for:\n"
+                                                      << op);
+        matmulToConfig[op] = config;
+        matmulCandidates.push_back(op);
+        return;
+      }
+
+      if (hasLargeK(op))
         matmulCandidates.push_back(op);
     });
+
+    if (splitReductionRatio.getValue() <= 1 &&
+        topkSplitReductionRatio.empty() && matmulToConfig.empty()) {
+        LDBG("Nothing to do, bailing out");
+      return;
+    }
+
+    auto matmulSplitReductionControlFn =
+        [&](linalg::LinalgOp op) -> linalg::SplitReductionOptions {
+      if (auto requestedRatio =
+              dyn_cast_or_null<IntegerAttr>(matmulToConfig.lookup(op))) {
+        return {requestedRatio.getInt(), 0, /*innerParallel=*/false};
+      }
+
+      // For matmul make the new parallel dimension first so that it looks
+      // like a batch_matmul and can follow the same codegen.
+      return {int64_t(splitReductionRatio), 0, /*innerParallel=*/false};
+    };
+
+    IRRewriter rewriter(context);
     for (auto op : matmulCandidates) {
       (void)splitReductionOnMatmul(rewriter, op, matmulSplitReductionControlFn);
     }
@@ -116,7 +164,7 @@ struct SplitReductionPass : public SplitReductionBase<SplitReductionPass> {
     };
 
     SmallVector<LinalgExt::TopkOp> topkCandidates;
-    funcOp->walk([&](LinalgExt::TopkOp op) { topkCandidates.push_back(op); });
+    rootOp->walk([&](LinalgExt::TopkOp op) { topkCandidates.push_back(op); });
     for (auto op : topkCandidates) {
       (void)splitReduction(rewriter, op, topkSplitReductionControlFn);
     }
