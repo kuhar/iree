@@ -329,7 +329,6 @@ transposeConvLikeLinalgOp(PatternRewriter &rewriter, linalg::LinalgOp convOp,
                           int tilingFactor,
                           ConvBuilderFn convBuilder = defaultConvBuilderFn) {
   Location loc = convOp.getLoc();
-
   linalg::ConvolutionDimensions convDims;
   auto errString = getMatchConvolutionMessage(
       linalg::detail::isConvolutionInterfaceImpl(convOp, &convDims));
@@ -342,6 +341,10 @@ transposeConvLikeLinalgOp(PatternRewriter &rewriter, linalg::LinalgOp convOp,
   }
 
   if (convDims.outputChannel.size() > 1) {
+    return failure();
+  }
+
+  if (convDims.filterLoop.empty()) {
     return failure();
   }
 

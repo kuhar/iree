@@ -568,6 +568,10 @@ setMatmulVectorDistributionConfig(mlir::FunctionOpInterface entryPoint,
   int64_t nSize = 1;
   for (auto dim : contractionDims->n)
     nSize *= bounds[dim];
+  int64_t kSize = 1;
+  for (auto dim : contractionDims->k)
+    kSize *= bounds[dim];
+  llvm::errs() << "Problem size: [" << mSize << ", " << nSize << ", " << kSize << "]\n";
 
   GPUMMAHeuristicSeeds seeds;
 
@@ -656,6 +660,7 @@ setVectorDistributionConfig(mlir::FunctionOpInterface entryPoint,
                             linalg::LinalgOp linalgOp,
                             const TargetInfo &targetInfo) {
   if (linalg::isaContractionOpInterface(linalgOp)) {
+    llvm::errs() << "Set matmul vector distribution config: " << linalgOp << "\n";
     return setMatmulVectorDistributionConfig(entryPoint, linalgOp, targetInfo);
   }
   if (linalg::isaConvolutionOpInterface(linalgOp)) {
