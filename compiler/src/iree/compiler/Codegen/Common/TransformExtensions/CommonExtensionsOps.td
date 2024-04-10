@@ -511,6 +511,32 @@ def WorkgroupSwizzleOp :  Op<Transform_Dialect, "iree.workgroup_swizzle",
   }];
 }
 
+def ReduceSharedMemoryBankConflictsOp :  Op<Transform_Dialect, "iree.reduce_shared_memory_bank_conflicts",
+    [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+     TransformEachOpTrait,
+     TransformOpInterface,
+     ReportTrackingListenerFailuresOpTrait]> {
+  let summary = "Add padding to reduce shared memory bank conflicts";
+  let arguments = (
+      ins TransformHandleTypeInterface:$target,
+          I64Attr:$padding_size
+  );
+  let results = (outs);
+
+  let assemblyFormat = "$target attr-dict `:` functional-type(operands, results)";
+  let cppNamespace = "mlir::iree_compiler::IREE::transform_dialect";
+
+  let extraClassDeclaration = [{
+    ::mlir::DiagnosedSilenceableFailure applyToOne(
+        ::mlir::transform::TransformRewriter &rewriter,
+        ::mlir::FunctionOpInterface funcOp,
+        ::mlir::transform::ApplyToEachResultList &results,
+        ::mlir::transform::TransformState &state);
+  }];
+}
+
+
+
 def TestVectorLayoutAnalysisOp :
   Op<Transform_Dialect, "iree.test_vector_layout_analysis",
     [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,

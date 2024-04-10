@@ -45,6 +45,22 @@ static void padAlloc(MLIRContext *context, memref::AllocOp allocOp,
   rewriter.eraseOp(allocOp);
 }
 
+LogicalResult reduceSharedMemoryBankConflicts(mlir::FunctionOpInterface funcOp,
+                                              unsigned paddingSize) {
+  SmallVector<memref::AllocOp> sharedMemAllocs;
+  // Collect all the alloc operations.
+  funcOp.walk([&](memref::AllocOp allocOp) {
+    if (hasSharedMemoryAddressSpace(allocOp.getType()) &&
+        allocOp.getType().hasStaticShape()) {
+      sharedMemAllocs.push_back(allocOp);
+    }
+  });
+  for (memref::AllocOp alloc : sharedMemAllocs)
+    padAlloc(funcOp->getContext(), alloc, paddingSize);
+
+  return success();
+}
+
 namespace {
 
 /// Pass to reduce the number of bank conflicts when accessing shared memory in
@@ -64,17 +80,7 @@ public:
 
   void runOnOperation() override {
     auto funcOp = getOperation();
-    MLIRContext *context = &getContext();
-    SmallVector<memref::AllocOp> sharedMemAllocs;
-    // Collect all the alloc operations.
-    funcOp.walk([&](memref::AllocOp allocOp) {
-      if (hasSharedMemoryAddressSpace(allocOp.getType()) &&
-          allocOp.getType().hasStaticShape()) {
-        sharedMemAllocs.push_back(allocOp);
-      }
-    });
-    for (memref::AllocOp alloc : sharedMemAllocs)
-      padAlloc(context, alloc, paddingSizeBits);
+    (void)reduceSharedMemoryBankConflicts(funcOp, paddingSizeBits);
   }
 };
 

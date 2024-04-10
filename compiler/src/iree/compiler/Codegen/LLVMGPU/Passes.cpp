@@ -681,7 +681,7 @@ void addGPUVectorDistributePassPipeline(OpPassManager &pm,
   }
 
   nestedModulePM.addNestedPass<func::FuncOp>(
-      createGPUReduceSharedMemoryBankConflicts());
+      createGPUReduceSharedMemoryBankConflicts(64));
 
   if (clLLVMGPUEnablePrefetch) {
     nestedModulePM.addNestedPass<func::FuncOp>(
