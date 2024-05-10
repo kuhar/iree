@@ -11,6 +11,7 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+#include "mlir/Support/LogicalResult.h"
 
 namespace mlir::iree_compiler {
 
@@ -74,8 +75,11 @@ namespace {
 /// be removed once the better solution is implemented.
 struct GPUReduceBankConflictsPass final
     : GPUReduceBankConflictsBase<GPUReduceBankConflictsPass> {
-  GPUReduceBankConflictsPass(int64_t paddingSizeBits)
-      : paddingSizeBits(paddingSizeBits) {}
+  GPUReduceBankConflictsPass(
+      int64_t paddingSizeBits,
+      std::function<LogicalResult(mlir::FunctionOpInterface)> filterFn)
+      : paddingSizeBits(paddingSizeBits), filterFn(std::move(filterFn)) {}
+
   void initOptions() {
     if (GPUReduceBankConflictsBase::paddingBits.hasValue())
       paddingSizeBits = GPUReduceBankConflictsBase::paddingBits;
@@ -84,19 +88,26 @@ struct GPUReduceBankConflictsPass final
   void runOnOperation() override {
     initOptions();
     FunctionOpInterface funcOp = getOperation();
+    if (filterFn && failed(filterFn(funcOp)))
+      return;
+
     if (failed(reduceSharedMemoryBankConflicts(funcOp, paddingSizeBits)))
       signalPassFailure();
   }
 
 private:
   unsigned paddingSizeBits;
+  std::function<LogicalResult(mlir::FunctionOpInterface)> filterFn;
 };
 
 } // namespace
 
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
-createGPUReduceSharedMemoryBankConflicts(int64_t paddingSizeBits) {
-  return std::make_unique<GPUReduceBankConflictsPass>(paddingSizeBits);
+createGPUReduceSharedMemoryBankConflicts(
+    int64_t paddingSizeBits,
+    std::function<LogicalResult(mlir::FunctionOpInterface)> filterFn) {
+  return std::make_unique<GPUReduceBankConflictsPass>(paddingSizeBits,
+                                                      std::move(filterFn));
 }
 
 } // namespace mlir::iree_compiler
