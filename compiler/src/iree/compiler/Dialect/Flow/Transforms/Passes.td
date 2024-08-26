@@ -140,6 +140,25 @@ def TensorPadToTensorInsertSlicePass :
   ];
 }
 
+def PadToAllocationPass :
+    Pass<"iree-flow-pad-to-allocation", ""> {
+  let summary = "Pad tensors to the preffered allocation size.";
+  let options = [
+    Option<"cacheLineBytes", "cache-line-bytes", "unsigned",
+           /*default=*/"128",
+           "L1 Cache Line size in bytes">,
+    Option<"numCacheSets", "num-cache-sets", "unsigned",
+           /*default=*/"4",
+           "Number of L1 Cache Sets">,
+  ];
+  let dependentDialects = [
+    "mlir::arith::ArithDialect",
+    "mlir::linalg::LinalgDialect",
+    "mlir::math::MathDialect",
+    "mlir::memref::MemRefDialect",
+  ];
+}
+
 def TransposeGenericOpsPass :
     Pass<"iree-flow-transpose-generic-ops", ""> {
   let summary = "Transpose generic op loops.";

@@ -64,6 +64,7 @@ iree_cc_library(
     "OutlineConstants.cpp"
     "OutlineDispatchExterns.cpp"
     "OutlineDispatchRegions.cpp"
+    "PadToAllocation.cpp"
     "Passes.cpp"
     "RegionOpUtils.cpp"
     "SetEncoding.cpp"

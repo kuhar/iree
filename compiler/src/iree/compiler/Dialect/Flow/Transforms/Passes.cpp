@@ -140,6 +140,12 @@ static llvm::cl::opt<int> clPadFactor(
                    "path in Flow with iree-flow-experimental-data-tiling."),
     llvm::cl::init(32));
 
+static llvm::cl::opt<bool> clEnableAllocationPad(
+    "iree-flow-experimental-allocation-padding",
+    llvm::cl::desc(
+        "Enables experimental allocation padding to increase cache bandwidth"),
+    llvm::cl::init(false));
+
 namespace mlir::iree_compiler::IREE::Flow {
 
 using FunctionLikeNest =
@@ -245,6 +251,11 @@ void addDispatchRegionCreationPreprocessingPasses(OpPassManager &passManager) {
       //        - help with dispatch region formation.
       //        - move reduction iterators to be innermost.
       .addPass(IREE::Flow::createTransposeGenericOpsPass);
+
+  if (clEnableAllocationPad) {
+    FunctionLikeNest(passManager)
+        .addPass(IREE::Flow::createPadToAllocationPass);
+  }
 }
 
 // Pipeline to first create `flow.dispatch.region` ops and then lower to
