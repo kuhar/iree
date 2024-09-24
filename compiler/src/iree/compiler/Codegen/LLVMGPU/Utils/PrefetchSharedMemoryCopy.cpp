@@ -103,15 +103,19 @@ public:
   emitPrologue(RewriterBase &rewriter) {
     Location loc = forOp.getLoc();
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, lb);
+    Value next = rewriter.create<arith::ConstantIndexOp>(loc, step);
     SmallVector<Value> iterArgs;
     SmallVector<Value> readResults;
     SmallVector<Value> writeArgs;
 
     // Directly write in the prologue and use the shared memory to communicate
-    // data instead of the loop carried values. Read (0)
+    // data instead of the loop carried values.
+    // Read (0)
     emitRead(mapping[0], rewriter, zero);
     // Write(0)
     emitWrite(mapping[0], rewriter, zero);
+    // Read (1)
+    emitRead(mapping[1], rewriter, next);
     return {iterArgs, writeArgs};
   }
 
@@ -120,7 +124,7 @@ public:
                               SmallVector<Value> &newIterArgs,
                               SmallVector<Value> &writeArgs) {
     Location loc = forOp.getLoc();
-    int64_t newUpperBound = ub - step;
+    int64_t newUpperBound = ub - 2 * step;
     auto newUb = rewriter.create<arith::ConstantIndexOp>(loc, newUpperBound);
 
     // Keep original iter args and then add some for what's being loaded to
@@ -147,6 +151,7 @@ public:
     Value indVar = newForOp.getInductionVar();
     Value increment = rewriter.create<arith::ConstantIndexOp>(loc, step);
     Value iPlusOne = rewriter.create<arith::AddIOp>(loc, indVar, increment);
+    Value iPlusTwo = rewriter.create<arith::AddIOp>(loc, iPlusOne, increment);
 
     for (int i = 0; i < 3; ++i) {
       for (auto [idx, arg] : llvm::enumerate(forOp.getRegionIterArgs())) {
@@ -154,12 +159,12 @@ public:
       }
     }
 
-    SmallVector<Value> readRegisters, moreRegisters;
-    emitRead(mapping[1], rewriter, iPlusOne);
     emitBarrier(loc, rewriter);
     emitCompute(mapping[0], rewriter, indVar);
     emitBarrier(loc, rewriter);
     emitWrite(mapping[1], rewriter, iPlusOne);
+    emitRead(mapping[2], rewriter, iPlusTwo);
+    SmallVector<Value> readRegisters;
     updateYield(mapping[0], readRegisters, rewriter);
     return;
   }
@@ -170,6 +175,8 @@ public:
                                   SmallVector<Value> &writeArgs) {
     rewriter.setInsertionPointAfter(newForOp);
     Location loc = forOp.getLoc();
+    Value nMinusTwo =
+        rewriter.create<arith::ConstantIndexOp>(loc, ub - 2 * step);
     Value nMinusOne =
         rewriter.create<arith::ConstantIndexOp>(loc, ub - 1 * step);
 
@@ -178,6 +185,10 @@ public:
       mapping[0].map(forOp.getRegionIterArg(i), newForOp.getResult(i));
     }
 
+    emitBarrier(loc, rewriter);
+    emitCompute(mapping[0], rewriter, nMinusTwo);
+    emitBarrier(loc, rewriter);
+    emitWrite(mapping[0], rewriter, nMinusOne);
     emitBarrier(loc, rewriter);
     return emitCompute(mapping[0], rewriter, nMinusOne);
   }
@@ -234,7 +245,10 @@ private:
 
     for (Operation &op : forOp.getBody()->getOperations()) {
       if (auto read = dyn_cast<vector::TransferReadOp>(op)) {
-        getValueDependencies(read, readDependencies);
+        if (auto srcType = dyn_cast<MemRefType>(read.getSource().getType()))
+          if (!srcType.getMemorySpace() ||
+              !isa<gpu::AddressSpaceAttr>(srcType.getMemorySpace()))
+            getValueDependencies(read, readDependencies);
       } else if (auto write = dyn_cast<vector::TransferWriteOp>(op)) {
         getValueDependencies(write, writeDependencies,
                              /*noTransferReads=*/true);
@@ -393,15 +407,6 @@ private:
     }
 
     return results;
-  }
-
-  /// Maps values in |srcValues| to |targetValues| in |mapping|.
-  static void createWriteMappings(SmallVector<Value> &srcValues,
-                                  SmallVector<Value> &targetValues,
-                                  IRMapping &mapping) {
-    for (auto [src, tgt] : llvm::zip_equal(srcValues, targetValues)) {
-      mapping.map(src, tgt);
-    }
   }
 
   void updateYield(IRMapping &mapping, SmallVector<Value> &readValues,
