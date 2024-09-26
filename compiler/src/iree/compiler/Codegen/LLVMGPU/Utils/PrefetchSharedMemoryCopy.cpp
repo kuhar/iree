@@ -224,6 +224,8 @@ private:
     if (numIters <= 2)
       return failure();
 
+    llvm::errs() << "Loop iterations: " << numIters << "\n";
+
     return success();
   }
 
