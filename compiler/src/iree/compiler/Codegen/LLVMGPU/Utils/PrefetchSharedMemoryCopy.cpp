@@ -169,7 +169,7 @@ public:
     Value iPlusOne = rewriter.create<arith::AddIOp>(
         loc, indVar, rewriter.create<arith::ConstantIndexOp>(loc, step));
     Value iPlusTwo = rewriter.create<arith::AddIOp>(
-        loc, iPlusOne, rewriter.create<arith::ConstantIndexOp>(loc, 2 * step));
+        loc, indVar, rewriter.create<arith::ConstantIndexOp>(loc, 2 * step));
 
     emitBarrier(loc, rewriter);
     emitCompute(mapping[0], rewriter, indVar);
@@ -201,15 +201,7 @@ public:
     }
 
     emitBarrier(loc, rewriter);
-    SmallVector<Value> computeResults = emitCompute(mapping[0], rewriter, nMinusTwo);
-    for (auto [computeIdx, computeOp] : llvm::enumerate(computeStage))
-      for (auto [resultIdx, result] : llvm::enumerate(computeOp->getResults()))
-        for (auto [yieldIdx, yielded] : llvm::enumerate(yieldOp.getOperands()))
-        if (yielded == result) {
-          mapping[0].map(forOp.getRegionIterArg(yieldIdx), computeResults[computeIdx]);
-        }
-
-
+    emitCompute(mapping[0], rewriter, nMinusTwo);
     emitBarrier(loc, rewriter);
     emitWrite(mapping[0], rewriter, nMinusOne);
     emitBarrier(loc, rewriter);
@@ -412,14 +404,19 @@ private:
     // Map the original loop induction variable to |iv| for later op rewrites.
     mapping.map(forOp.getInductionVar(), indVar);
 
-    SmallVector<Value> results;
+    SmallVector<Value> yieldResults;
+    SmallVector<Value> origIterArgs;
     for (Operation *op : computeStage) {
       if (auto yieldOp = dyn_cast<scf::YieldOp>(op)) {
         // On yield, return the operands of the yield converted.
-        results =
+        yieldResults =
             llvm::map_to_vector<4>(yieldOp.getOperands(), [&](Value operand) {
               return mapping.lookup(operand);
             });
+        for (auto [iterArg, yielded] :
+             llvm::zip_equal(forOp.getRegionIterArgs(), yieldResults)) {
+          mapping.map(iterArg, yielded);
+        }
         break;
       }
 
@@ -429,7 +426,6 @@ private:
               newOperand->set(mapping.lookup(newOperand->get()));
             }
           });
-      results = newOp->getResults();
 
       // Map compute operations to new compute operations.
       for (unsigned i = 0, e = op->getNumResults(); i != e; ++i) {
@@ -437,7 +433,7 @@ private:
       }
     }
 
-    return results;
+    return yieldResults;
   }
 
   void updateYield(IRMapping &mapping, SmallVector<Value> &readValues,

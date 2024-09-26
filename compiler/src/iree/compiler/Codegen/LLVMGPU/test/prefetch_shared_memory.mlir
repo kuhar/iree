@@ -13,7 +13,7 @@ func.func @prefetch_add(%arg0: memref<128xf32>) {
   // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
   %c0 = arith.constant 0 : index
   // CHECK-DAG: %[[SHARED:.*]] = memref.alloc() : memref<1xf32, #gpu.address_space<workgroup>>
-  %alloc = memref.alloc() : memref<1xf32, #gpu.address_space<workgroup>>
+  %alloc = memref.alloc() : memref<1024xf32, #gpu.address_space<workgroup>>
   // CHECK-DAG: %[[PRO_READ:.*]] = vector.transfer_read %[[GLOBAL]]
   // CHECK: vector.transfer_write %[[PRO_READ]], %[[SHARED]]
   // CHECK: %[[OUT:.*]] = scf.for %[[IV:.*]] = %[[C0]] to %[[C127]] step %[[C1]] iter_args(%[[ARG:.*]] = %[[CST]])
@@ -21,10 +21,10 @@ func.func @prefetch_add(%arg0: memref<128xf32>) {
     // CHECK-DAG: %[[IVPLUS1:.*]] = arith.addi %[[IV]], %[[C1]]
     // CHECK: %[[KER_READ:.*]] = vector.transfer_read %[[GLOBAL]][%[[IVPLUS1]]]
     %1 = vector.transfer_read %arg0[%arg1], %cst_0 : memref<128xf32>, vector<1xf32>
-    vector.transfer_write %1, %alloc[%c0] {in_bounds = [true]} : vector<1xf32>, memref<1xf32, #gpu.address_space<workgroup>>
+    vector.transfer_write %1, %alloc[%arg1] {in_bounds = [true]} : vector<1xf32>, memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: gpu.barrier
     // CHECK: %[[COMPUTE_READ:.*]] = vector.transfer_read %[[SHARED]][%[[C0]]]
-    %2 = vector.transfer_read %alloc[%c0], %cst_0 : memref<1xf32, #gpu.address_space<workgroup>>, vector<1xf32>
+    %2 = vector.transfer_read %alloc[%arg1], %cst_0 : memref<1024xf32, #gpu.address_space<workgroup>>, vector<1xf32>
     // CHECK: %[[COMPUTE:.*]] = arith.addf %[[COMPUTE_READ]], %[[ARG]]
     %3 = arith.addf %2, %arg2 : vector<1xf32>
     // CHECK: gpu.barrier
