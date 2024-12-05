@@ -10,8 +10,8 @@
 
 namespace mlir::iree_compiler::IREE::Codegen {
 
-FailureOr<ModuleOp>
-IREECodegenDialect::getOrLoadTransformLibraryModule(std::string libraryPath) {
+FailureOr<ModuleOp> IREECodegenDialect::getOrLoadTransformLibraryModule(
+    StringRef libraryPath, StringRef libraryMLIRSource) {
   // Acquire a lock on the map that will release once out of scope.
   std::lock_guard<std::mutex> guard(libraryMutex);
 

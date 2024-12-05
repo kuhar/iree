@@ -8,20 +8,26 @@
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenDialect.h"
+#include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUAttrs.h"
+#include "iree/compiler/Codegen/Utils/GPUUtils.h"
+#include "iree/compiler/Utils/EmbeddedDataDirectory.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
 #include "mlir/Dialect/Transform/IR/TransformOps.h"
 #include "mlir/Dialect/Transform/IR/TransformTypes.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Support/FileUtilities.h"
 
 #define DEBUG_TYPE "iree-codegen-materialize-tuning-specs"
@@ -79,6 +85,29 @@ static LogicalResult dumpFinalTuningSpecToDir(ModuleOp tuningSpec,
   return success();
 }
 
+static FailureOr<ModuleOp> getDefaultTuningSpec(ModuleOp module) {
+  IREE::GPU::TargetAttr gpuTarget = getGPUTargetAttr(module);
+  if (!gpuTarget) {
+    return failure();
+  }
+
+  StringRef arch = gpuTarget.getArch();
+  std::string defaultTuningSpecName =
+      llvm::formatv("iree_default_tuning_spec_{}.mlir", arch);
+  std::optional<StringRef> defaultTuningSpec;
+  EmbeddedDataDirectory::withGlobal([&](EmbeddedDataDirectory &dir) {
+    defaultTuningSpec = dir.getFile(defaultTuningSpecName);
+  });
+  if (!defaultTuningSpec) {
+    return failure();
+  }
+
+  ParserConfig config(module.getContext());
+  OwningOpRef<ModuleOp> tuningSpec = parseSourceString<ModuleOp>(
+      *defaultTuningSpec, config, defaultTuningSpecName);
+  return failure();
+}
+
 static FailureOr<DenseElementsAttr>
 serializeTuningSpecToAttr(ModuleOp tuningSpec) {
   std::string buffer;
@@ -101,12 +130,14 @@ struct MaterializeTuningSpecsPass final
   }
 
   void runOnOperation() override {
-    if (clCodegenTuningSpecPath.empty()) {
+    ModuleOp module = getOperation();
+    MLIRContext *ctx = &getContext();
+
+    FailureOr<ModuleOp> defaultTuningSpec = getDefaultTuningSpec(module);
+    if (failed(defaultTuningSpec) && clCodegenTuningSpecPath.empty()) {
       return;
     }
 
-    ModuleOp module = getOperation();
-    MLIRContext *ctx = &getContext();
     auto dialect = ctx->getOrLoadDialect<IREE::Codegen::IREECodegenDialect>();
     auto maybeTransformLibrary =
         dialect->getOrLoadTransformLibraryModule(clCodegenTuningSpecPath);

@@ -14,27 +14,26 @@ if(NOT IREE_TARGET_BACKEND_ROCM)
   return()
 endif()
 
-iree_transform_dialect_library(
-  NAME
-    iree_default_tuning_specs_gfx942
-  SRC
-    "iree_default_tuning_specs_gfx942.mlir"
-  MODULE_FILE_NAME
-    "iree_default_tuning_specs_gfx942.mlirbc"
-  PUBLIC
-)
-
 iree_c_embed_data(
   NAME
     iree_default_tuning_specs_amdgpu_bytecode
   SRCS
-    "iree_default_tuning_specs_gfx942.mlirbc"
+    "iree_default_tuning_spec_gfx942.mlir"
   C_FILE_OUTPUT
-    "iree_default_tuning_specs_amdgpu_bytecode.c"
+    "iree_default_tuning_specs_amdgpu.c"
   H_FILE_OUTPUT
-    "iree_default_tuning_specs_amdgpu_bytecode.h"
+    "iree_default_tuning_specs_amdgpu.h"
   FLATTEN
   PUBLIC
+)
+
+iree_lit_test_suite(
+  NAME
+    verify_default_tuning_specs_amdgpu
+  SRCS
+    "iree_default_tuning_spec_gfx942.mlir"
+  TOOLS
+    iree-opt
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

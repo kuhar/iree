@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:build_defs.oss.bzl", "iree_cmake_extra_content")
-load("//build_tools/bazel:iree_transform_dialect_library.bzl", "iree_transform_dialect_library")
+load("//build_tools/bazel:iree_lit_test.bzl", "iree_lit_test_suite")
 load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 
 package(
@@ -28,21 +28,26 @@ gpu_archs = [
     "gfx942",
 ]
 
-[iree_transform_dialect_library(
-    name = "iree_default_tuning_specs_%s" % gpu_arch,
-    src = "iree_default_tuning_specs_%s.mlir" % gpu_arch,
-    module_name = "iree_default_tuning_specs_%s.mlirbc" % gpu_arch,
-) for gpu_arch in gpu_archs]
-
-tuning_spec_mlirbc_files = [
-    ":iree_default_tuning_specs_%s.mlirbc" % gpu_arch
+tuning_spec_mlir_files = [
+    "iree_default_tuning_spec_%s.mlir" % gpu_arch
     for gpu_arch in gpu_archs
 ]
 
 iree_c_embed_data(
     name = "iree_default_tuning_specs_amdgpu_bytecode",
-    srcs = tuning_spec_mlirbc_files,
-    c_file_output = "iree_default_tuning_specs_amdgpu_bytecode.c",
+    srcs = tuning_spec_mlir_files,
+    c_file_output = "iree_default_tuning_specs_amdgpu.c",
     flatten = True,
-    h_file_output = "iree_default_tuning_specs_amdgpu_bytecode.h",
+    h_file_output = "iree_default_tuning_specs_amdgpu.h",
+)
+
+# Verify that the tuning specs are valid. We need this here because we do not
+# assemble the tuning spec mlir and invalid specs do not lead to build errors.
+iree_lit_test_suite(
+    name = "verify_default_tuning_specs_amdgpu",
+    srcs = tuning_spec_mlir_files,
+    cfg = "//compiler:lit.cfg.py",
+    tools = [
+        "//tools:iree-opt",
+    ],
 )

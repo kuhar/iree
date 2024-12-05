@@ -696,35 +696,6 @@ class BuildFileFunctions(object):
             f"  PUBLIC\n)\n\n"
         )
 
-    def iree_transform_dialect_library(
-        self,
-        name,
-        src,
-        module_name=None,
-        flags=None,
-        deps=None,
-        testonly=None,
-    ):
-        name_block = self._convert_string_arg_block("NAME", name, quote=False)
-        src_block = self._convert_string_arg_block("SRC", src)
-        module_name_block = self._convert_string_arg_block(
-            "MODULE_FILE_NAME", module_name
-        )
-        flags_block = self._convert_string_list_block("FLAGS", flags)
-        deps_block = self._convert_target_list_block("DEPS", deps)
-        testonly_block = self._convert_option_block("TESTONLY", testonly)
-
-        self._converter.body += (
-            f"iree_transform_dialect_library(\n"
-            f"{name_block}"
-            f"{src_block}"
-            f"{module_name_block}"
-            f"{flags_block}"
-            f"{deps_block}"
-            f"{testonly_block}"
-            f"  PUBLIC\n)\n\n"
-        )
-
     def gentbl_cc_library(
         self,
         name,
