@@ -1,7 +1,7 @@
 // RUN: iree-opt %s
 
-module @mmt_tile_and_fuse_spec attributes { transform.with_named_sequence } {
-  transform.named_sequence @main(%arg0: !transform.any_op {transform.readonly}) -> ()
+module @iree_default_tuning_spec_gfx942 attributes { transform.with_named_sequence } {
+  transform.named_sequence @__kernel_config(%arg0: !transform.any_op {transform.readonly}) -> ()
     attributes { iree_codegen.tuning_spec_entrypoint } {
     %mmt = transform.structured.match ops{["linalg.generic"]} in %arg0 : (!transform.any_op) -> !transform.any_op
     // transform.print %mmt {name="MMT"} : !transform.any_op

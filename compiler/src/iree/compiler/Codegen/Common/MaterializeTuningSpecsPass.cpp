@@ -12,6 +12,7 @@
 #include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "iree/compiler/Utils/EmbeddedDataDirectory.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -27,7 +28,6 @@
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OwningOpRef.h"
-#include "mlir/Parser/Parser.h"
 #include "mlir/Support/FileUtilities.h"
 
 #define DEBUG_TYPE "iree-codegen-materialize-tuning-specs"
@@ -47,6 +47,12 @@ llvm::cl::opt<std::string> clCodegenTuningSpecPath(
                    "dialect library)."),
     llvm::cl::init(""));
 
+llvm::cl::opt<bool> clCodegenEnableDefaultTuningSpecs(
+    "iree-codegen-enable-default-tuning-specs",
+    llvm::cl::desc("Whether to enable default tuning spec transform libraries "
+                   "shipped with the compiler"),
+    llvm::cl::init(false));
+
 llvm::cl::opt<std::string> clCodegenTuningSpecDumpDir(
     "iree-codegen-dump-tuning-specs-to",
     llvm::cl::desc(
@@ -56,8 +62,11 @@ llvm::cl::opt<std::string> clCodegenTuningSpecDumpDir(
 
 using mlir::transform::NamedSequenceOp;
 
-static LogicalResult dumpFinalTuningSpecToDir(ModuleOp tuningSpec,
-                                              StringRef dir) {
+static LogicalResult dumpFinalTuningSpecToDir(ModuleOp tuningSpec) {
+  StringRef dir = clCodegenTuningSpecDumpDir;
+  if (dir.empty()) {
+    return success();
+  }
   if (dir == "-") {
     tuningSpec->print(llvm::outs());
     return success();
@@ -85,27 +94,53 @@ static LogicalResult dumpFinalTuningSpecToDir(ModuleOp tuningSpec,
   return success();
 }
 
-static FailureOr<ModuleOp> getDefaultTuningSpec(ModuleOp module) {
+static FailureOr<ModuleOp>
+getUserTuningSpec(ModuleOp module, IREE::Codegen::IREECodegenDialect &dialect) {
+  if (clCodegenTuningSpecPath.empty()) {
+    return failure();
+  }
+
+  FailureOr<ModuleOp> maybeTransformLibrary =
+      dialect.getOrLoadTransformLibraryModule(clCodegenTuningSpecPath);
+  if (failed(maybeTransformLibrary)) {
+    return module->emitError()
+           << "Failed to load tuning spec transform dialect library from "
+           << clCodegenTuningSpecPath;
+  }
+
+  return *maybeTransformLibrary;
+}
+
+static FailureOr<ModuleOp>
+getDefaultTuningSpec(ModuleOp module,
+                     IREE::Codegen::IREECodegenDialect &dialect) {
+  if (!clCodegenEnableDefaultTuningSpecs) {
+    return failure();
+  }
+
   IREE::GPU::TargetAttr gpuTarget = getGPUTargetAttr(module);
   if (!gpuTarget) {
     return failure();
   }
 
+  // Try to look up the default tuning spec for this architecture, if any.
   StringRef arch = gpuTarget.getArch();
   std::string defaultTuningSpecName =
       llvm::formatv("iree_default_tuning_spec_{}.mlir", arch);
-  std::optional<StringRef> defaultTuningSpec;
+  std::optional<StringRef> defaultTuningSpecSource;
   EmbeddedDataDirectory::withGlobal([&](EmbeddedDataDirectory &dir) {
-    defaultTuningSpec = dir.getFile(defaultTuningSpecName);
+    defaultTuningSpecSource = dir.getFile(defaultTuningSpecName);
   });
-  if (!defaultTuningSpec) {
+  if (!defaultTuningSpecSource) {
+    // Not all architectures are expected to provide default tuning specs, so
+    // this shouldn't be considered a hard error (but that's up to the caller).
     return failure();
   }
 
-  ParserConfig config(module.getContext());
-  OwningOpRef<ModuleOp> tuningSpec = parseSourceString<ModuleOp>(
-      *defaultTuningSpec, config, defaultTuningSpecName);
-  return failure();
+  // Load the library through the codegen dialect so that we cache the parsed
+  // module.
+  return dialect.getOrLoadTransformLibraryModule(defaultTuningSpecName,
+                                                 *defaultTuningSpecSource);
 }
 
 static FailureOr<DenseElementsAttr>
@@ -132,29 +167,52 @@ struct MaterializeTuningSpecsPass final
   void runOnOperation() override {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
-
-    FailureOr<ModuleOp> defaultTuningSpec = getDefaultTuningSpec(module);
-    if (failed(defaultTuningSpec) && clCodegenTuningSpecPath.empty()) {
-      return;
-    }
-
     auto dialect = ctx->getOrLoadDialect<IREE::Codegen::IREECodegenDialect>();
-    auto maybeTransformLibrary =
-        dialect->getOrLoadTransformLibraryModule(clCodegenTuningSpecPath);
-    if (failed(maybeTransformLibrary)) {
-      module->emitError()
-          << "Failed to load tuning spec transform dialect library from "
-          << clCodegenTuningSpecPath;
+    assert(dialect);
+
+    FailureOr<ModuleOp> userTuningSpec = getUserTuningSpec(module, *dialect);
+    const bool hasUserTuningSpec = succeeded(userTuningSpec);
+    if (!hasUserTuningSpec && !clCodegenTuningSpecPath.empty()) {
+      // When a user spec is requested but fails to load, this is a hard
+      // failure.
       return signalPassFailure();
     }
 
-    ModuleOp userTuningSpec = *maybeTransformLibrary;
-    if (!userTuningSpec.getSymName()) {
-      // Set a module name so that we can refer to its nested symbols.
-      userTuningSpec.setSymName("iree_user_tuning_spec");
+    FailureOr<ModuleOp> defaultTuningSpec =
+        getDefaultTuningSpec(module, *dialect);
+    const bool hasDefaultTuningSpec = succeeded(defaultTuningSpec);
+    if (!hasUserTuningSpec && !hasDefaultTuningSpec) {
+      // No specs available, nothing to do.
+      return;
     }
 
-    Location loc = userTuningSpec.getLoc();
+    // If only the default tuning spec is available, use it directly and skip
+    // the linking stage.
+    if (!hasUserTuningSpec) {
+      if (failed(dumpFinalTuningSpecToDir(*defaultTuningSpec))) {
+        return signalPassFailure();
+      }
+      FailureOr<DenseElementsAttr> serializedSpec =
+          serializeTuningSpecToAttr(*defaultTuningSpec);
+      if (failed(serializedSpec)) {
+        module->emitError("Failed to serialize default tuning specs");
+        return signalPassFailure();
+      }
+      module->setAttr(kSerializedTuningSpecAttrName, *serializedSpec);
+      return;
+    }
+
+    // When the user tuning spec is available, link all available libraries into
+    // a single module. We insert the default tuning spec last, so that any
+    // user-specified tuning configurations take precedence.
+    SmallVector<ModuleOp, 2> allSpecs = {*userTuningSpec};
+    if (hasDefaultTuningSpec) {
+      allSpecs.push_back(*defaultTuningSpec);
+    }
+
+    Location loc = FusedLoc::get(
+        ctx,
+        llvm::map_to_vector(allSpecs, [](ModuleOp m) { return m.getLoc(); }));
 
     // This module will always be released at the end of the pass.
     OwningOpRef<ModuleOp> linkedTuningSpec(
@@ -162,7 +220,13 @@ struct MaterializeTuningSpecsPass final
     linkedTuningSpec.get()->setAttr(
         transform::TransformDialect::kWithNamedSequenceAttrName,
         UnitAttr::get(ctx));
-    linkedTuningSpec->insert(linkedTuningSpec->begin(), userTuningSpec.clone());
+    for (auto [idx, spec] : llvm::enumerate(allSpecs)) {
+      ModuleOp clonedSpec = spec.clone();
+      // Make sure there are no symbol name collisions.
+      clonedSpec.setSymName(
+          llvm::formatv("{}_{}", clonedSpec.getSymName().value(), idx).str());
+      linkedTuningSpec->push_back(clonedSpec);
+    }
 
     // TODO(https://github.com/iree-org/iree/issues/19214): Add linked tuning
     // spec memoization to IREECodegenDialect. We should be able to provide a
@@ -176,11 +240,8 @@ struct MaterializeTuningSpecsPass final
       return signalPassFailure();
     }
 
-    if (!clCodegenTuningSpecDumpDir.empty()) {
-      if (failed(dumpFinalTuningSpecToDir(linkedTuningSpec.get(),
-                                          clCodegenTuningSpecDumpDir))) {
-        return signalPassFailure();
-      }
+    if (failed(dumpFinalTuningSpecToDir(linkedTuningSpec.get()))) {
+      return signalPassFailure();
     }
 
     FailureOr<DenseElementsAttr> serializedSpec =
