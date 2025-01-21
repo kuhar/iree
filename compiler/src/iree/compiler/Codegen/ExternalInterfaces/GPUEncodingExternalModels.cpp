@@ -21,6 +21,7 @@
 
 #include "iree/compiler/Codegen/ExternalInterfaces/GPUEncodingExternalModels.h"
 
+#include <cassert>
 #include <cfloat>
 
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenTypes.h"
@@ -29,7 +30,9 @@
 #include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUAttrs.h"
 #include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUDialect.h"
 #include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUOps.h"
-#include "iree/compiler/Dialect/Encoding/IR/EncodingOps.h"
+#include "iree/compiler/Codegen/ExternalInterfaces/Utils.h"
+#include "iree/compiler/Dialect/Encoding/IR/EncodingDialect.h"
+#include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 
@@ -333,6 +336,26 @@ struct GPUDeviceEncodingLayoutAttrInterface
   }
 };
 
+struct GPUPadEncodingLayoutAttrInterface
+    : public Encoding::EncodingLayoutAttrInterface::ExternalModel<
+          GPUPadEncodingLayoutAttrInterface, GPUPadLayoutAttr> {
+  Value calculateStorageSizeInBytes(Attribute attr, Location loc,
+                                    OpBuilder &builder, RankedTensorType type,
+                                    ValueRange dynamicDims) const {
+    return calculateStorageSizeInBytesImpl(attr, loc, builder, type,
+                                           dynamicDims);
+  }
+
+  Attribute cloneWithSimplifiedConfig(Attribute attr,
+                                      DictionaryAttr config) const {
+    return attr;
+  }
+
+  Attribute getLayout(Attribute attr, RankedTensorType type) const {
+    return attr;
+  }
+};
+
 } // namespace
 
 void registerGPUEncodingExternalModels(DialectRegistry &registry) {
@@ -340,6 +363,8 @@ void registerGPUEncodingExternalModels(DialectRegistry &registry) {
       +[](MLIRContext *ctx, IREE::GPU::IREEGPUDialect *dialect) {
         IREE::GPU::GPUEncodingLayoutAttr::attachInterface<
             GPUDeviceEncodingLayoutAttrInterface>(*ctx);
+        IREE::GPU::GPUPadLayoutAttr::attachInterface<
+            GPUPadEncodingLayoutAttrInterface>(*ctx);
       });
 }
 

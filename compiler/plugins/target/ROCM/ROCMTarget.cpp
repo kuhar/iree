@@ -248,6 +248,9 @@ public:
     if (auto target = GPU::getHIPTargetDetails(
             options.target, options.targetFeatures, context)) {
       addConfig("iree.gpu.target", target);
+      if (Attribute encoding = GPU::getHIPTargetEncodingLayoutAttr(target)) {
+        addConfig("encoding", encoding);
+      }
     }
 
     addConfig("ukernels", b.getStringAttr(options.enableROCMUkernels));

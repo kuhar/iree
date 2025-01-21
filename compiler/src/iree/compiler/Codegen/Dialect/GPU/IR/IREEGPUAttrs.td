@@ -341,6 +341,21 @@ def IREEGPU_GPUEncodingLayoutAttr :
 }
 
 //===----------------------------------------------------------------------===//
+// iree_gpu.gpu_encoding_layout
+//===----------------------------------------------------------------------===//
+
+def IREEGPU_GPUPadLayoutAttr : AttrDef<IREEGPU_Dialect, "GPUPadLayout"> {
+  let mnemonic = "gpu_pad_layout";
+  let summary = "The padding layout attribute for GPU backends.";
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let parameters = (ins
+    OptionalParameter<"DictionaryAttr", "Executable target configuration. It is "
+    "expected to be used in a pass scope, but not the final IR output.">:$configuration
+  );
+}
+
+//===----------------------------------------------------------------------===//
 // Workgroup processor level description
 //===----------------------------------------------------------------------===//
 

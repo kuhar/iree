@@ -6,6 +6,7 @@
 
 #include "iree/compiler/Codegen/Dialect/GPU/TargetUtils/KnownTargets.h"
 
+#include <cassert>
 #include <optional>
 #include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUAttrs.h"
 #include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUEnums.h"
@@ -703,6 +704,15 @@ TargetAttr getHIPTargetDetails(StringRef target, StringRef features,
                             context);
   }
   return nullptr;
+}
+
+Attribute getHIPTargetEncodingLayoutAttr(TargetAttr target) {
+  if (target.getArch() != "gfx942") {
+    return nullptr;
+  }
+
+  return IREE::GPU::GPUPadLayoutAttr::get(
+      target.getContext(), DictionaryAttr::get(target.getContext()));
 }
 
 StringRef normalizeHIPTarget(StringRef target) {

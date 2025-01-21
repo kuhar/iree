@@ -32,6 +32,11 @@ namespace mlir::iree_compiler::DispatchCreation {
 
 using IREE::Encoding::EncodingAttr;
 
+static llvm::cl::opt<bool>
+    clEnableSetPaddedEncoding("iree-set-padded-encoding",
+                              llvm::cl::desc("Set encoding for gpu padding"),
+                              llvm::cl::init(false));
+
 //===---------------------------------------------------------------------===//
 // Utility functions
 //===---------------------------------------------------------------------===//
@@ -189,6 +194,15 @@ public:
     Value rhs = inputs[1];
     Value out = outputs[0];
 
+    const bool lhsComesFromDispatchRegion =
+        lhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
+    const bool rhsComesFromDispatchRegion =
+        rhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
+    if (clEnableSetPaddedEncoding &&
+        (!lhsComesFromDispatchRegion && !rhsComesFromDispatchRegion)) {
+      return failure();
+    }
+
     Type lhsElemType = getContractionInputTypeWithSignedness(
         rewriter, linalgOp, linalgOp.getDpsInputOperand(0));
     Type rhsElemType = getContractionInputTypeWithSignedness(
@@ -221,7 +235,10 @@ public:
       return setEncoding(rewriter, loc, src, encoding);
     };
     Value encodedLhs = setEncodingWrapper(lhs, IREE::Encoding::MATMUL_LHS);
-    Value encodedRhs = setEncodingWrapper(rhs, IREE::Encoding::MATMUL_RHS);
+    Value encodedRhs = rhs;
+    if (!clEnableSetPaddedEncoding || (lhs != rhs)) {
+      setEncodingWrapper(rhs, IREE::Encoding::MATMUL_RHS);
+    }
     Value encodedOut = setEncodingWrapper(out, IREE::Encoding::MATMUL_RESULT);
     Value opTiled = clone(rewriter, linalgOp, encodedOut.getType(),
                           ValueRange{encodedLhs, encodedRhs, encodedOut})
