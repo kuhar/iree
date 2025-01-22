@@ -23,6 +23,7 @@
 
 #include <cassert>
 #include <cfloat>
+#include <cstdint>
 
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/Utils/Utils.h"
@@ -35,6 +36,10 @@
 #include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
 
 #define DEBUG_TYPE "iree-gpu-encoding-external-models"
 
@@ -348,11 +353,53 @@ struct GPUPadEncodingLayoutAttrInterface
 
   Attribute cloneWithSimplifiedConfig(Attribute attr,
                                       DictionaryAttr config) const {
-    return attr;
+    MLIRContext *ctx = attr.getContext();
+    auto gpuTarget = cast<IREE::GPU::TargetAttr>(config.get("iree.gpu.target"));
+    auto padLayout = GPUPadLayoutAttr::get(
+        ctx,
+        DictionaryAttr::get(
+            ctx, NamedAttribute(StringAttr::get(ctx, "arch"),
+                                StringAttr::get(ctx, gpuTarget.getArch()))));
+    llvm::errs() << "cloneWithSimplifiedConfig: " << padLayout << "\n";
+    return padLayout;
   }
 
   Attribute getLayout(Attribute attr, RankedTensorType type) const {
-    return attr;
+    auto padLayoutAttr = cast<GPUPadLayoutAttr>(attr);
+    auto archAttr = padLayoutAttr.getConfiguration().getAs<StringAttr>("arch");
+    llvm::errs() << "archAttr: " << archAttr << "\n";
+    llvm::errs() << "type: " << type << "\n";
+
+    auto encodingAttr = cast<Encoding::EncodingAttr>(type.getEncoding());
+    llvm::errs() << "encoding: " << encodingAttr << "\n";
+
+    MLIRContext *ctx = attr.getContext();
+    auto emptyLayout = GPUPadLayoutAttr::get(ctx, DictionaryAttr::get(ctx));
+    if (!archAttr || archAttr.strref() != "gfx942") {
+      return emptyLayout;
+    }
+    if (encodingAttr.getOperandIndex().getInt() == 2) {
+      return emptyLayout;
+    }
+    if (type.getRank() != 2 || type.isDynamicDim(1)) {
+      return emptyLayout;
+    }
+
+    const int64_t elementBits = type.getElementTypeBitWidth();
+    if ((elementBits % 8 != 0) || elementBits < 8) {
+      return emptyLayout;
+    }
+
+    const int64_t kSizeInBytes = type.getDimSize(1) * (elementBits / 8);
+    if (kSizeInBytes % (128 * 4) != 0) {
+      return emptyLayout;
+    }
+
+    const int64_t padValue = 128 / (elementBits / 8);
+    auto config = DictionaryAttr::get(
+        ctx, NamedAttribute(StringAttr::get(ctx, "pad_k"),
+                            IntegerAttr::get(IndexType::get(ctx), padValue)));
+    return GPUPadLayoutAttr::get(ctx, config);
   }
 };
 
