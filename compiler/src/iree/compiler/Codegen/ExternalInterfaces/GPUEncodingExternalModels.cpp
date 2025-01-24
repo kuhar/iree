@@ -34,12 +34,18 @@
 #include "iree/compiler/Codegen/ExternalInterfaces/Utils.h"
 #include "iree/compiler/Dialect/Encoding/IR/EncodingDialect.h"
 #include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+
+#include <functional>
+#include <numeric>
 
 #define DEBUG_TYPE "iree-gpu-encoding-external-models"
 
@@ -347,8 +353,32 @@ struct GPUPadEncodingLayoutAttrInterface
   Value calculateStorageSizeInBytes(Attribute attr, Location loc,
                                     OpBuilder &builder, RankedTensorType type,
                                     ValueRange dynamicDims) const {
-    return calculateStorageSizeInBytesImpl(attr, loc, builder, type,
-                                           dynamicDims);
+    auto padAttr =
+        cast<GPUPadLayoutAttr>(attr).getConfiguration().getAs<IntegerAttr>(
+            "pad_k");
+    const int64_t padValue = padAttr.getInt();
+    llvm::errs() << "attr: " << attr << "\n";
+    llvm::errs() << "pad value: " << padValue << "\n";
+    llvm::errs() << "type: " << type << "\n";
+    llvm::errs() << "dims: ";
+    llvm::interleaveComma(dynamicDims, llvm::errs());
+    llvm::errs() << "\n";
+
+    if (dynamicDims.empty()) {
+      auto newShape = llvm::to_vector_of<int64_t>(type.getShape());
+      newShape.back() += padValue;
+      newShape.push_back(llvm::divideCeil(type.getElementTypeBitWidth(), 8));
+      llvm::errs() << "new shape: ";
+      llvm::interleaveComma(newShape, llvm::errs());
+      llvm::errs() << "\n";
+      int64_t totalSize = std::accumulate(newShape.begin(), newShape.end(), 1,
+                                          std::multiplies<>{});
+      llvm::errs() << "total size: " << totalSize << "\n";
+      return builder.create<arith::ConstantIndexOp>(loc, totalSize);
+    }
+
+    assert(false);
+    return nullptr;
   }
 
   Attribute cloneWithSimplifiedConfig(Attribute attr,
