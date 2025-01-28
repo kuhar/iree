@@ -136,15 +136,15 @@ public:
       deviceAnalysis.gatherRequiredExecutableTargets(affinityAttr, op,
                                                      resultSet);
       for (auto targetAttr : resultSet) {
-        llvm::errs() << "makeLayoutAttrResolver: " << targetAttr << "\n";
-        llvm::errs() << "configuration: " << targetAttr.getConfiguration()
-                     << "\n";
+        // llvm::errs() << "makeLayoutAttrResolver: " << targetAttr << "\n";
+        // llvm::errs() << "configuration: " << targetAttr.getConfiguration()
+        //              << "\n";
         Attribute result = targetAttr;
         if (auto attr = targetAttr.getConfiguration().getNamed("encoding")) {
           if (auto encodingLayoutAttr =
                   dyn_cast<IREE::Encoding::EncodingLayoutAttrInterface>(
                       attr->getValue())) {
-            llvm::errs() << "encoding attr: " << encodingLayoutAttr << "\n";
+            // llvm::errs() << "encoding attr: " << encodingLayoutAttr << "\n";
             result = encodingLayoutAttr.cloneWithSimplifiedConfig(
                 targetAttr.getConfiguration());
           }

@@ -74,6 +74,10 @@ static llvm::cl::opt<bool> clLLVMGPUEnableSharedMemoryReuse(
         "Enable shared memory reuse in the vector distribute pipeline"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> clLLVMGPUMaterializeEncodingIntoPadding(
+    "iree-llvmgpu-materialize-encoding-into-padding",
+    llvm::cl::desc("Experimental pad encoding"), llvm::cl::init(false));
+
 //===----------------------------------------------------------------------===//
 // Bufferization Configuration
 //===----------------------------------------------------------------------===//
@@ -1153,7 +1157,11 @@ static void buildLLVMGPUCodegenConfigurationPassPipelineImpl(
     FunctionLikeNest funcPassManager(modulePassManager);
     funcPassManager.addPass(createGPUGeneralizeNamedOpsPass);
     addCommonTargetExecutablePreprocessingPasses(funcPassManager);
-    addEncodingToNopPasses(funcPassManager);
+    if (clLLVMGPUMaterializeEncodingIntoPadding) {
+      addEncodingToPaddingPasses(funcPassManager);
+    } else {
+      addEncodingToNopPasses(funcPassManager);
+    }
     funcPassManager.addPass(createBlockDynamicDimensionsPass);
     funcPassManager.addPass(createConfigTrackingCanonicalizerPass);
     funcPassManager.addPass(createCSEPass);

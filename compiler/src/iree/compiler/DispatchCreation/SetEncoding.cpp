@@ -237,7 +237,7 @@ public:
     Value encodedLhs = setEncodingWrapper(lhs, IREE::Encoding::MATMUL_LHS);
     Value encodedRhs = rhs;
     if (!clEnableSetPaddedEncoding || (lhs != rhs)) {
-      setEncodingWrapper(rhs, IREE::Encoding::MATMUL_RHS);
+      encodedRhs = setEncodingWrapper(rhs, IREE::Encoding::MATMUL_RHS);
     }
     Value encodedOut = setEncodingWrapper(out, IREE::Encoding::MATMUL_RESULT);
     Value opTiled = clone(rewriter, linalgOp, encodedOut.getType(),

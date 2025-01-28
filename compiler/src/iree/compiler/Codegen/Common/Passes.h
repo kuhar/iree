@@ -53,6 +53,8 @@ void addConstantBufferizePasses(OpPassManager &funcPassManager);
 /// Populate Encoding to Nop pass and canonicalizer pass to the pipeline
 void addEncodingToNopPasses(FunctionLikeNest &passManager);
 
+void addEncodingToPaddingPasses(FunctionLikeNest &passManager);
+
 /// Links nested transform dialect tuning specs named sequences into a single
 /// entry point. Returns the new named sequence op (inserted into the `module`)
 /// that includes the nested tuning specs, or a null op when no nested named
