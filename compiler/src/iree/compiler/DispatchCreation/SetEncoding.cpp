@@ -38,6 +38,10 @@ static llvm::cl::opt<bool>
                               llvm::cl::desc("Set encoding for gpu padding"),
                               llvm::cl::init(false));
 
+static llvm::cl::opt<bool> clEnableSetPaddedEncodingRelaxed(
+    "iree-set-padded-encoding-relaxed",
+    llvm::cl::desc("Set encoding for gpu padding on all inputs"),
+    llvm::cl::init(false));
 //===---------------------------------------------------------------------===//
 // Utility functions
 //===---------------------------------------------------------------------===//
@@ -197,7 +201,7 @@ public:
 
     Operation *lhsDef = lhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
     Operation *rhsDef = rhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
-    if (clEnableSetPaddedEncoding) {
+    if (clEnableSetPaddedEncoding && !clEnableSetPaddedEncodingRelaxed) {
       if (!lhsDef && !rhsDef) {
         return failure();
       }
@@ -237,12 +241,21 @@ public:
 
     Value encodedLhs = lhs;
     Value encodedRhs = rhs;
-    bool lhsNeedsEncoding =
-        !clEnableSetPaddedEncoding ||
-        (lhsDef && llvm::hasSingleElement(lhsDef->getUsers()));
-    bool rhsNeedsEncoding =
-        !clEnableSetPaddedEncoding ||
-        (rhsDef && llvm::hasSingleElement(rhsDef->getUsers()) && lhs != rhs);
+    bool lhsNeedsEncoding = true;
+    if (!clEnableSetPaddedEncodingRelaxed) {
+      if (!lhsDef || !llvm::hasSingleElement(lhsDef->getUsers())) {
+        lhsNeedsEncoding = false;
+      }
+    }
+    bool rhsNeedsEncoding = true;
+    if (clEnableSetPaddedEncoding) {
+      if (lhs == rhs) {
+        rhsNeedsEncoding = false;
+      } else if (!rhsDef || !llvm::hasSingleElement(rhsDef->getUsers())) {
+        rhsNeedsEncoding = false;
+      }
+    }
+
     if (!lhsNeedsEncoding && !rhsNeedsEncoding) {
       return failure();
     }
