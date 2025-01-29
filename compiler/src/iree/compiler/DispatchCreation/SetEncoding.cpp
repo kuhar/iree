@@ -251,8 +251,10 @@ public:
     if (clEnableSetPaddedEncoding) {
       if (lhs == rhs) {
         rhsNeedsEncoding = false;
-      } else if (!rhsDef || !llvm::hasSingleElement(rhsDef->getUsers())) {
-        rhsNeedsEncoding = false;
+      } else if (!clEnableSetPaddedEncodingRelaxed) {
+        if (!rhsDef || !llvm::hasSingleElement(rhsDef->getUsers())) {
+          rhsNeedsEncoding = false;
+        }
       }
     }
 
