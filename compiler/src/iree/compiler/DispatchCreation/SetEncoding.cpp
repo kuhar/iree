@@ -16,6 +16,7 @@
 #include "iree/compiler/Dialect/Flow/IR/FlowOps.h"
 #include "iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.h"
 #include "iree/compiler/DispatchCreation/Passes.h"
+#include "llvm/ADT/STLExtras.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
@@ -194,13 +195,12 @@ public:
     Value rhs = inputs[1];
     Value out = outputs[0];
 
-    const bool lhsComesFromDispatchRegion =
-        lhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
-    const bool rhsComesFromDispatchRegion =
-        rhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
-    if (clEnableSetPaddedEncoding &&
-        (!lhsComesFromDispatchRegion && !rhsComesFromDispatchRegion)) {
-      return failure();
+    Operation *lhsDef = lhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
+    Operation *rhsDef = rhs.getDefiningOp<IREE::Flow::DispatchRegionOp>();
+    if (clEnableSetPaddedEncoding) {
+      if (!lhsDef && !rhsDef) {
+        return failure();
+      }
     }
 
     Type lhsElemType = getContractionInputTypeWithSignedness(
@@ -234,9 +234,22 @@ public:
                                         /*bcastMap=*/std::nullopt, roundDimsTo);
       return setEncoding(rewriter, loc, src, encoding);
     };
-    Value encodedLhs = setEncodingWrapper(lhs, IREE::Encoding::MATMUL_LHS);
+
+    Value encodedLhs = lhs;
     Value encodedRhs = rhs;
-    if (!clEnableSetPaddedEncoding || (lhs != rhs)) {
+    bool lhsNeedsEncoding =
+        !clEnableSetPaddedEncoding ||
+        (lhsDef && llvm::hasSingleElement(lhsDef->getUsers()));
+    bool rhsNeedsEncoding =
+        !clEnableSetPaddedEncoding ||
+        (rhsDef && llvm::hasSingleElement(rhsDef->getUsers()) && lhs != rhs);
+    if (!lhsNeedsEncoding && !rhsNeedsEncoding) {
+      return failure();
+    }
+    if (lhsNeedsEncoding) {
+      encodedLhs = setEncodingWrapper(lhs, IREE::Encoding::MATMUL_LHS);
+    }
+    if (rhsNeedsEncoding) {
       encodedRhs = setEncodingWrapper(rhs, IREE::Encoding::MATMUL_RHS);
     }
     Value encodedOut = setEncodingWrapper(out, IREE::Encoding::MATMUL_RESULT);

@@ -176,10 +176,15 @@ struct MaterializeFlowDispatchTensorLoadOp
     if (paddedType == boundTensorType) {
       return failure();
     }
-    return failure();
 
-    SmallVector<OpFoldResult> newMixedSizes = getMixedValues(
-        boundTensorType.getShape(), loadOp.getSourceDims(), rewriter);
+    Operation *sourceValueOp =
+        adaptor.getSource().getDefiningOp<UnrealizedConversionCastOp>();
+    if (!sourceValueOp || sourceValueOp->getNumResults() != 1) {
+      return failure();
+    }
+
+    SmallVector<OpFoldResult> newMixedSizes =
+        getMixedValues(paddedType.getShape(), loadOp.getSourceDims(), rewriter);
 
     SmallVector<OpFoldResult> newOffsets(newMixedSizes.size(),
                                          rewriter.getIndexAttr(0));
@@ -188,9 +193,17 @@ struct MaterializeFlowDispatchTensorLoadOp
     SmallVector<int64_t> newStaticDims;
     SmallVector<Value> newDynamicDims;
     dispatchIndexOpFoldResults(newMixedSizes, newDynamicDims, newStaticDims);
-    rewriter.replaceOpWithNewOp<IREE::Flow::DispatchTensorLoadOp>(
-        loadOp, adaptor.getSource(), newDynamicDims, newOffsets, newMixedSizes,
-        newStrides);
+
+    Location loc = loadOp.getLoc();
+    Value newLoad = rewriter.create<IREE::Flow::DispatchTensorLoadOp>(
+        loc, sourceValueOp->getOperand(0), newDynamicDims, newOffsets,
+        newMixedSizes, newStrides);
+    auto extractType = RankedTensorType::get(boundTensorType.getShape(),
+                                             boundTensorType.getElementType());
+    SmallVector<OpFoldResult> extractSizes = getMixedValues(
+        boundTensorType.getShape(), loadOp.getSourceDims(), rewriter);
+    rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
+        loadOp, extractType, newLoad, extractSizes, newOffsets, newStrides);
 
     return success();
   }
@@ -221,12 +234,40 @@ struct MaterializeFlowDispatchTensorStoreOp
     }
 
     llvm::errs() << "materializeTensorStore:\n" << storeOp << "\n";
+    llvm::errs() << "value: " << adaptor.getValue() << "\n";
+    llvm::errs() << "target: " << adaptor.getTarget() << "\n";
     RankedTensorType paddedType = typeConverter.getPaddedType(boundTensorType);
     llvm::errs() << "bound type: " << boundTensorType << "\n";
     llvm::errs() << "padded bound type: " << paddedType << "\n";
     if (paddedType == boundTensorType) {
       return failure();
     }
+
+    auto target =
+        adaptor.getTarget().getDefiningOp<UnrealizedConversionCastOp>();
+    if (!target || target.getNumResults() != 1) {
+      return failure();
+    }
+
+    Location loc = storeOp.getLoc();
+    auto valueType = cast<RankedTensorType>(adaptor.getValue().getType());
+    SmallVector<Value> dynamicResultSizes;
+    for (size_t dim = 0, e = valueType.getNumDynamicDims(); dim != e; ++dim) {
+      dynamicResultSizes.push_back(
+          rewriter.create<tensor::DimOp>(loc, adaptor.getValue(), dim));
+    }
+    Value empty =
+        rewriter.create<tensor::EmptyOp>(loc, paddedType, dynamicResultSizes);
+    llvm::errs() << "empty: " << empty << "\n";
+
+    SmallVector<OpFoldResult> offsets(paddedType.getRank(),
+                                      rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> strides(paddedType.getRank(),
+                                      rewriter.getIndexAttr(1));
+    SmallVector<OpFoldResult> sizes =
+        tensor::getMixedSizes(rewriter, loc, adaptor.getValue());
+    Value insertOp = rewriter.create<tensor::InsertSliceOp>(
+        loc, adaptor.getValue(), empty, offsets, sizes, strides);
 
     SmallVector<OpFoldResult> newMixedSizes = getMixedValues(
         paddedType.getShape(), storeOp.getTargetDims(), rewriter);
@@ -238,62 +279,9 @@ struct MaterializeFlowDispatchTensorStoreOp
     SmallVector<Value> newDynamicDims;
     dispatchIndexOpFoldResults(newMixedSizes, newDynamicDims, newStaticDims);
 
-    auto rawValue = adaptor.getValue()
-                        .getDefiningOp<UnrealizedConversionCastOp>()
-                        ->getOperand(0);
-    auto rawTarget = adaptor.getTarget()
-                         .getDefiningOp<UnrealizedConversionCastOp>()
-                         ->getOperand(0);
-
     rewriter.replaceOpWithNewOp<IREE::Flow::DispatchTensorStoreOp>(
-        storeOp, rawValue, rawTarget, newDynamicDims, newOffsets, newMixedSizes,
-        newStrides);
-    return success();
-  }
-};
-
-struct SetEncodingOpLoweringConversion
-    : public OpMaterializeEncodingPattern<IREE::Encoding::SetEncodingOp> {
-  using OpMaterializeEncodingPattern::OpMaterializeEncodingPattern;
-
-  LogicalResult
-  matchAndRewrite(IREE::Encoding::SetEncodingOp encodingOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto &typeConverter =
-        *getTypeConverter<MaterializePadEncodingTypeConverter>();
-    RankedTensorType resultType = encodingOp.getResultType();
-    RankedTensorType sourceType = encodingOp.getSourceType();
-    RankedTensorType paddedType = typeConverter.getPaddedType(resultType);
-    llvm::errs() << "set encoding op: " << encodingOp << "\n";
-    llvm::errs() << "source type: " << sourceType << "\n";
-    llvm::errs() << "padded result type: " << paddedType << "\n";
-    if (resultType == paddedType) {
-      return failure();
-    }
-
-    Location loc = encodingOp.getLoc();
-    SmallVector<Value> dynamicResultSizes;
-    for (size_t dim = 0, e = sourceType.getNumDynamicDims(); dim != e; ++dim) {
-      dynamicResultSizes.push_back(
-          rewriter.create<tensor::DimOp>(loc, adaptor.getSource(), dim));
-    }
-    Value empty =
-        rewriter.create<tensor::EmptyOp>(loc, paddedType, dynamicResultSizes);
-    llvm::errs() << "empty: " << empty << "\n";
-
-    SmallVector<OpFoldResult> offsets(paddedType.getRank(),
-                                      rewriter.getIndexAttr(0));
-    SmallVector<OpFoldResult> strides(paddedType.getRank(),
-                                      rewriter.getIndexAttr(1));
-    SmallVector<OpFoldResult> sizes =
-        tensor::getMixedSizes(rewriter, loc, adaptor.getSource());
-    auto insertOp = rewriter.create<tensor::InsertSliceOp>(
-        loc, adaptor.getSource(), empty, offsets, sizes, strides);
-    if (failed(insertOp.verify())) {
-      llvm::errs() << "insert failed to verify\n";
-    }
-    llvm::errs() << "insert: " << insertOp << "\n";
-    rewriter.replaceOp(encodingOp, insertOp);
+        storeOp, insertOp, target.getOperand(0), newDynamicDims, newOffsets,
+        newMixedSizes, newStrides);
     return success();
   }
 };
@@ -323,11 +311,11 @@ struct MaterializeEncodingIntoPaddingPass final
     populateMaterializeEncodingPatterns(materializeEncodingPattern, target,
                                         typeConverter,
                                         materializeEncodingValueFn);
-    materializeEncodingPattern.add<
-        MaterializeSubspanOp, MaterializeFlowDispatchTensorLoadOp,
-        MaterializeFlowDispatchTensorStoreOp, SetEncodingOpLoweringConversion>(
-        context, typeConverter, materializeEncodingValueFn,
-        PatternBenefit{100});
+    materializeEncodingPattern
+        .add<MaterializeSubspanOp, MaterializeFlowDispatchTensorLoadOp,
+             MaterializeFlowDispatchTensorStoreOp>(context, typeConverter,
+                                                   materializeEncodingValueFn,
+                                                   PatternBenefit{100});
 
     if (failed(applyPartialConversion(operation, target,
                                       std::move(materializeEncodingPattern)))) {
@@ -341,6 +329,8 @@ struct MaterializeEncodingIntoPaddingPass final
       memref::populateResolveRankedShapedTypeResultDimsPatterns(patterns);
       context->getOrLoadDialect<tensor::TensorDialect>()
           ->getCanonicalizationPatterns(patterns);
+      IREE::Flow::populateTensorSliceOpWithDispatchTensorOpFoldingPatterns(
+          patterns, context);
       if (failed(applyPatternsGreedily(operation, std::move(patterns)))) {
         operation.emitOpError("folding patterns failed");
         return signalPassFailure();

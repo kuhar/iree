@@ -1996,8 +1996,7 @@ struct FoldInsertSliceWithTensorStoreOp
         getBindingArgument(insertSliceOp.getDest());
     std::optional<BlockArgument> targetBinding =
         getBindingArgument(dispatchTensorStoreOp.getTarget());
-    if (!destBinding || !targetBinding ||
-        destBinding.value() != targetBinding.value()) {
+    if (destBinding != targetBinding) {
       return failure();
     }
 
