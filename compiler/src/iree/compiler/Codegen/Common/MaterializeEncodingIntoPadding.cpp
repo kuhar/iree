@@ -198,12 +198,13 @@ struct MaterializeFlowDispatchTensorLoadOp
     Value newLoad = rewriter.create<IREE::Flow::DispatchTensorLoadOp>(
         loc, sourceValueOp->getOperand(0), newDynamicDims, newOffsets,
         newMixedSizes, newStrides);
+    llvm::errs() << "New load: " << newLoad << "\n";
     auto extractType = RankedTensorType::get(boundTensorType.getShape(),
                                              boundTensorType.getElementType());
     SmallVector<OpFoldResult> extractSizes = getMixedValues(
         boundTensorType.getShape(), loadOp.getSourceDims(), rewriter);
     rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
-        loadOp, extractType, newLoad, extractSizes, newOffsets, newStrides);
+        loadOp, extractType, newLoad, newOffsets, extractSizes, newStrides);
 
     return success();
   }
