@@ -184,7 +184,7 @@ static LogicalResult addLayoutsToTensorPhaseOps(
             .Case<IREE::Stream::TensorConstantOp>([&](auto op) {
               return updateTensorConstantOp(rewriter, op, layoutResolvers);
             })
-            .Default([](auto *op) { return failure(); });
+            .Default([](Operation *op) { return success(); });
 
     if (failed(result)) {
       return failure();

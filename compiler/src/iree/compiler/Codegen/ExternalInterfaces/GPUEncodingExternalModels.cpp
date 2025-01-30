@@ -35,6 +35,7 @@
 #include "iree/compiler/Dialect/Encoding/IR/EncodingDialect.h"
 #include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -353,32 +354,43 @@ struct GPUPadEncodingLayoutAttrInterface
   Value calculateStorageSizeInBytes(Attribute attr, Location loc,
                                     OpBuilder &builder, RankedTensorType type,
                                     ValueRange dynamicDims) const {
-    auto padAttr =
-        cast<GPUPadLayoutAttr>(attr).getConfiguration().getAs<IntegerAttr>(
-            "pad_k");
-    const int64_t padValue = padAttr.getInt();
+    int64_t padValue = 0;
+    if (auto padAttr =
+            cast<GPUPadLayoutAttr>(attr).getConfiguration().getAs<IntegerAttr>(
+                "pad_k")) {
+      padValue = padAttr.getInt();
+    }
+
     llvm::errs() << "attr: " << attr << "\n";
     llvm::errs() << "pad value: " << padValue << "\n";
     llvm::errs() << "type: " << type << "\n";
-    llvm::errs() << "dims: ";
+    llvm::errs() << "dynamic dims: ";
     llvm::interleaveComma(dynamicDims, llvm::errs());
     llvm::errs() << "\n";
 
-    if (dynamicDims.empty()) {
-      auto newShape = llvm::to_vector_of<int64_t>(type.getShape());
-      newShape.back() += padValue;
-      newShape.push_back(llvm::divideCeil(type.getElementTypeBitWidth(), 8));
-      llvm::errs() << "new shape: ";
-      llvm::interleaveComma(newShape, llvm::errs());
-      llvm::errs() << "\n";
-      int64_t totalSize = std::accumulate(newShape.begin(), newShape.end(), 1,
-                                          std::multiplies<>{});
-      llvm::errs() << "total size: " << totalSize << "\n";
-      return builder.create<arith::ConstantIndexOp>(loc, totalSize);
-    }
+    auto newStaticShape =
+        llvm::filter_to_vector<4>(type.getShape(), [](int64_t dim) {
+          return !ShapedType::isDynamic(dim);
+        });
+    newStaticShape.back() += padValue;
+    // Account for the element type.
+    newStaticShape.push_back(
+        llvm::divideCeil(type.getElementTypeBitWidth(), 8));
+    llvm::errs() << "new static shape: ";
+    llvm::interleaveComma(newStaticShape, llvm::errs());
+    llvm::errs() << "\n";
 
-    assert(false);
-    return nullptr;
+    int64_t totalStaticSize = std::accumulate(
+        newStaticShape.begin(), newStaticShape.end(), 1, std::multiplies<>{});
+    llvm::errs() << "total static size: " << totalStaticSize << "\n";
+    Value totalSize =
+        builder.create<arith::ConstantIndexOp>(loc, totalStaticSize);
+
+    for (Value dim : dynamicDims) {
+      totalSize = builder.create<arith::MulIOp>(loc, totalSize, dim);
+    }
+    llvm::errs() << "total size: " << totalSize << "\n";
+    return totalSize;
   }
 
   Attribute cloneWithSimplifiedConfig(Attribute attr,
