@@ -5,8 +5,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //===- GPUEncodingExternalModels.cpp --------------------------------------===//
 //
-// This file implements the IREE::Codegen::LayoutAttrInterface for GPU backends.
-// Different from CPU backends, we do not tranpose narrow-N to narrow-M for a
+// This file implements the IREE::Codegen::LayoutAttrInterface and
+// IREE::Encoding::EncodingLayoutAttrInterface for GPU backends.
+// Different from CPU backends, we do not transpose narrow-N to narrow-M for a
 // combination of reasons:
 //
 //   1. As linalg.matmul materializes into iree_gpu.multi_mma, which inherits
@@ -21,8 +22,6 @@
 
 #include "iree/compiler/Codegen/ExternalInterfaces/GPUEncodingExternalModels.h"
 
-#include <cfloat>
-
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/Utils/Utils.h"
 #include "iree/compiler/Codegen/Dialect/GPU/IR/GPUTileSwizzleUtils.h"
@@ -32,6 +31,9 @@
 #include "iree/compiler/Dialect/Encoding/IR/EncodingOps.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
+
+#include <cfloat>
+#include <numeric>
 
 #define DEBUG_TYPE "iree-gpu-encoding-external-models"
 
@@ -333,6 +335,103 @@ struct GPUDeviceEncodingLayoutAttrInterface
   }
 };
 
+struct GPUPadEncodingLayoutAttrInterface final
+    : Encoding::EncodingLayoutAttrInterface::ExternalModel<
+          GPUPadEncodingLayoutAttrInterface, GPUPadLayoutAttr> {
+  Value calculateStorageSizeInBytes(Attribute attr, Location loc,
+                                    OpBuilder &builder, RankedTensorType type,
+                                    ValueRange dynamicDims) const {
+    int64_t padValue = 0;
+    if (auto padAttr =
+            cast<GPUPadLayoutAttr>(attr).getConfiguration().getAs<IntegerAttr>(
+                "pad_k")) {
+      padValue = padAttr.getInt();
+    }
+
+    llvm::errs() << "attr: " << attr << "\n";
+    llvm::errs() << "pad value: " << padValue << "\n";
+    llvm::errs() << "type: " << type << "\n";
+    llvm::errs() << "dynamic dims: ";
+    llvm::interleaveComma(dynamicDims, llvm::errs());
+    llvm::errs() << "\n";
+
+    auto newStaticShape =
+        llvm::filter_to_vector<4>(type.getShape(), [](int64_t dim) {
+          return !ShapedType::isDynamic(dim);
+        });
+    newStaticShape.back() += padValue;
+    // Account for the element type.
+    newStaticShape.push_back(
+        llvm::divideCeil(type.getElementTypeBitWidth(), 8));
+    llvm::errs() << "new static shape: ";
+    llvm::interleaveComma(newStaticShape, llvm::errs());
+    llvm::errs() << "\n";
+
+    int64_t totalStaticSize = std::accumulate(
+        newStaticShape.begin(), newStaticShape.end(), 1, std::multiplies<>{});
+    llvm::errs() << "total static size: " << totalStaticSize << "\n";
+    Value totalSize =
+        builder.create<arith::ConstantIndexOp>(loc, totalStaticSize);
+
+    for (Value dim : dynamicDims) {
+      totalSize = builder.create<arith::MulIOp>(loc, totalSize, dim);
+    }
+    llvm::errs() << "total size: " << totalSize << "\n";
+    return totalSize;
+  }
+
+  Attribute cloneWithSimplifiedConfig(Attribute attr,
+                                      DictionaryAttr config) const {
+    MLIRContext *ctx = attr.getContext();
+    auto gpuTarget = cast<IREE::GPU::TargetAttr>(config.get("iree.gpu.target"));
+    auto padLayout = GPUPadLayoutAttr::get(
+        ctx,
+        DictionaryAttr::get(
+            ctx, NamedAttribute(StringAttr::get(ctx, "arch"),
+                                StringAttr::get(ctx, gpuTarget.getArch()))));
+    llvm::errs() << "cloneWithSimplifiedConfig: " << padLayout << "\n";
+    return padLayout;
+  }
+
+  Attribute getLayout(Attribute attr, RankedTensorType type) const {
+    auto padLayoutAttr = cast<GPUPadLayoutAttr>(attr);
+    auto archAttr = padLayoutAttr.getConfiguration().getAs<StringAttr>("arch");
+    llvm::errs() << "archAttr: " << archAttr << "\n";
+    llvm::errs() << "type: " << type << "\n";
+
+    auto encodingAttr = cast<Encoding::EncodingAttr>(type.getEncoding());
+    llvm::errs() << "encoding: " << encodingAttr << "\n";
+
+    MLIRContext *ctx = attr.getContext();
+    auto emptyLayout = GPUPadLayoutAttr::get(ctx, DictionaryAttr::get(ctx));
+    if (!archAttr || archAttr.strref() != "gfx942") {
+      return emptyLayout;
+    }
+    if (encodingAttr.getOperandIndex().getInt() == 2) {
+      return emptyLayout;
+    }
+    if (type.getRank() != 2 || type.isDynamicDim(1)) {
+      return emptyLayout;
+    }
+
+    const int64_t elementBits = type.getElementTypeBitWidth();
+    if ((elementBits % 8 != 0) || elementBits < 8) {
+      return emptyLayout;
+    }
+
+    const int64_t kSizeInBytes = type.getDimSize(1) * (elementBits / 8);
+    if (kSizeInBytes % (128 * 4) != 0) {
+      return emptyLayout;
+    }
+
+    const int64_t padValue = 128 / (elementBits / 8);
+    auto config = DictionaryAttr::get(
+        ctx, NamedAttribute(StringAttr::get(ctx, "pad_k"),
+                            IntegerAttr::get(IndexType::get(ctx), padValue)));
+    return GPUPadLayoutAttr::get(ctx, config);
+  }
+};
+
 } // namespace
 
 void registerGPUEncodingExternalModels(DialectRegistry &registry) {
@@ -340,6 +439,8 @@ void registerGPUEncodingExternalModels(DialectRegistry &registry) {
       +[](MLIRContext *ctx, IREE::GPU::IREEGPUDialect *dialect) {
         IREE::GPU::GPUEncodingLayoutAttr::attachInterface<
             GPUDeviceEncodingLayoutAttrInterface>(*ctx);
+        IREE::GPU::GPUPadLayoutAttr::attachInterface<
+            GPUPadEncodingLayoutAttrInterface>(*ctx);
       });
 }
 
