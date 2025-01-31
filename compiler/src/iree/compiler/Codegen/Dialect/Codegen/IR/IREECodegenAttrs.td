@@ -417,7 +417,7 @@ def IREECodegen_ExportConfig : AttrDef<IREECodegen_Dialect, "ExportConfig", []> 
 }
 
 //===---------------------------------------------------------------------===//
-// iree_codegen.encoding_layout
+// iree_codegen.encoding_nop_layout
 //===---------------------------------------------------------------------===//
 
 def IREECodegen_EncodingNopLayoutAttr  :
@@ -434,6 +434,37 @@ def IREECodegen_EncodingNopLayoutAttr  :
     encodings. It can be a default attribute when a backend does not implement
     encoding details.
   }];
+}
+
+//===---------------------------------------------------------------------===//
+// iree_codegen.pad_encoding_layout
+//===---------------------------------------------------------------------===//
+
+def IREECodegen_PadEncodingLayoutAttr  :
+    AttrDef<IREECodegen_Dialect, "PadEncodingLayout"> {
+  let mnemonic = "pad_encoding_layout";
+  // let assemblyFormat = "`<` $padding `>`";
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let summary = "An attribute that encodes padding values of tensor dimensions";
+  let description = [{
+    Associates tensor dimensions with pad values (numbers of appended elements).
+    The logical dimensions of the tensors do not change, and the elements in
+    the padded regions are left uninitialized.
+
+    This attribute implements `Encoding::SerializedEncodingLayoutAttrInterface`,
+    to provide a hook for tensor sizeof lowering. The implementation of this
+    interface is backend-agnostic, but the emission of the pad encoding attribute
+    itself can be target- or domain-specific. See the implementation in
+    `compiler/Codegen/ExternalInterfaces/*`.
+  }];
+
+  let parameters = (ins
+    // How many padding elements to along each tensor dimension.
+    "DenseI32ArrayAttr":$padding,
+    OptionalParameter<"DictionaryAttr", "Executable target configuration. It is "
+    "expected to be used in a pass scope, but not the final IR output.">:$configuration
+  );
 }
 
 #endif // IREE_COMPILER_CODEGEN_DIALECT_IREECODEGENATTRS

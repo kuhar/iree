@@ -360,6 +360,10 @@ def IREEGPU_GPUPadLayoutAttr : AttrDef<IREEGPU_Dialect, "GPUPadLayout"> {
   }];
 
   let parameters = (ins
+    // Relevant target properties that will later allow us to decide the
+    // serialized pad layout.
+    "uint32_t":$cache_line_bytes,
+    "uint32_t":$cache_sets,
     OptionalParameter<"DictionaryAttr", "Executable target configuration. It is "
     "expected to be used in a pass scope, but not the final IR output.">:$configuration
   );

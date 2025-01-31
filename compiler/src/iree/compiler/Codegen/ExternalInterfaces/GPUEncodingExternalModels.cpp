@@ -22,7 +22,8 @@
 
 #include "iree/compiler/Codegen/ExternalInterfaces/GPUEncodingExternalModels.h"
 
-#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenTypes.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenDialect.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/Utils/Utils.h"
 #include "iree/compiler/Codegen/Dialect/GPU/IR/GPUTileSwizzleUtils.h"
 #include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUAttrs.h"
@@ -31,6 +32,7 @@
 #include "iree/compiler/Dialect/Encoding/IR/EncodingOps.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 #include <cfloat>
 #include <numeric>
@@ -338,59 +340,11 @@ struct GPUDeviceEncodingLayoutAttrInterface
 struct GPUPadEncodingLayoutAttrInterface final
     : Encoding::EncodingLayoutAttrInterface::ExternalModel<
           GPUPadEncodingLayoutAttrInterface, GPUPadLayoutAttr> {
-  Value calculateStorageSizeInBytes(Attribute attr, Location loc,
-                                    OpBuilder &builder, RankedTensorType type,
-                                    ValueRange dynamicDims) const {
-    int64_t padValue = 0;
-    if (auto padAttr =
-            cast<GPUPadLayoutAttr>(attr).getConfiguration().getAs<IntegerAttr>(
-                "pad_k")) {
-      padValue = padAttr.getInt();
-    }
-
-    llvm::errs() << "attr: " << attr << "\n";
-    llvm::errs() << "pad value: " << padValue << "\n";
-    llvm::errs() << "type: " << type << "\n";
-    llvm::errs() << "dynamic dims: ";
-    llvm::interleaveComma(dynamicDims, llvm::errs());
-    llvm::errs() << "\n";
-
-    auto newStaticShape =
-        llvm::filter_to_vector<4>(type.getShape(), [](int64_t dim) {
-          return !ShapedType::isDynamic(dim);
-        });
-    newStaticShape.back() += padValue;
-    // Account for the element type.
-    newStaticShape.push_back(
-        llvm::divideCeil(type.getElementTypeBitWidth(), 8));
-    llvm::errs() << "new static shape: ";
-    llvm::interleaveComma(newStaticShape, llvm::errs());
-    llvm::errs() << "\n";
-
-    int64_t totalStaticSize = std::accumulate(
-        newStaticShape.begin(), newStaticShape.end(), 1, std::multiplies<>{});
-    llvm::errs() << "total static size: " << totalStaticSize << "\n";
-    Value totalSize =
-        builder.create<arith::ConstantIndexOp>(loc, totalStaticSize);
-
-    for (Value dim : dynamicDims) {
-      totalSize = builder.create<arith::MulIOp>(loc, totalSize, dim);
-    }
-    llvm::errs() << "total size: " << totalSize << "\n";
-    return totalSize;
-  }
-
   Attribute cloneWithSimplifiedConfig(Attribute attr,
-                                      DictionaryAttr config) const {
-    MLIRContext *ctx = attr.getContext();
-    auto gpuTarget = cast<IREE::GPU::TargetAttr>(config.get("iree.gpu.target"));
-    auto padLayout = GPUPadLayoutAttr::get(
-        ctx,
-        DictionaryAttr::get(
-            ctx, NamedAttribute(StringAttr::get(ctx, "arch"),
-                                StringAttr::get(ctx, gpuTarget.getArch()))));
-    llvm::errs() << "cloneWithSimplifiedConfig: " << padLayout << "\n";
-    return padLayout;
+                                      DictionaryAttr /*config*/) const {
+    // This attribute is self-contained and does not need to look anything up
+    // from the target `config`.
+    return attr;
   }
 
   Attribute getLayout(Attribute attr, RankedTensorType type) const {
@@ -403,7 +357,8 @@ struct GPUPadEncodingLayoutAttrInterface final
     llvm::errs() << "encoding: " << encodingAttr << "\n";
 
     MLIRContext *ctx = attr.getContext();
-    auto emptyLayout = GPUPadLayoutAttr::get(ctx, DictionaryAttr::get(ctx));
+    auto emptyLayout = IREE::Codegen::PadEncodingLayoutAttr::get(
+        ctx, DenseI32ArrayAttr::get(ctx, {}), DictionaryAttr::get(ctx));
     if (!archAttr || archAttr.strref() != "gfx942") {
       return emptyLayout;
     }
@@ -426,9 +381,10 @@ struct GPUPadEncodingLayoutAttrInterface final
 
     const int64_t padValue = 128 / (elementBits / 8);
     auto config = DictionaryAttr::get(
-        ctx, NamedAttribute(StringAttr::get(ctx, "pad_k"),
+        ctx, NamedAttribute("pad_k",
                             IntegerAttr::get(IndexType::get(ctx), padValue)));
-    return GPUPadLayoutAttr::get(ctx, config);
+    return IREE::Codegen::PadEncodingLayoutAttr::get(
+        ctx, DenseI32ArrayAttr::get(ctx, {}), config);
   }
 };
 

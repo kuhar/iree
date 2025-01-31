@@ -54,7 +54,7 @@ def PackedStorageAttr : IREEEncoding_Attr<"PackedStorage"> {
 
 def EncodingAttr :
     IREEEncoding_Attr<"Encoding", [
-      DeclareAttrInterfaceMethods<IREEEncoding_EncodingLayoutAttrInterface, [
+      DeclareAttrInterfaceMethods<IREEEncoding_SerializedEncodingAttrInterface , [
         "calculateStorageSizeInBytes",
       ]>
     ]> {

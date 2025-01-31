@@ -156,18 +156,15 @@ Value EncodingAttr::calculateStorageSizeInBytes(Location loc,
                                                 OpBuilder &builder,
                                                 RankedTensorType type,
                                                 ValueRange dynamicDims) const {
-  if (auto layoutsAttr = getLayouts()) {
-    if (llvm::any_of(layoutsAttr.getValue(), [](Attribute attr) {
-          return !llvm::isa<IREE::Encoding::EncodingLayoutAttrInterface>(attr);
-        })) {
-      return Value();
+  if (ArrayAttr layoutsAttr = getLayouts()) {
+    if (!llvm::all_of(layoutsAttr.getValue(),
+                      llvm::IsaPred<SerializedEncodingLayoutAttrInterface>)) {
+      return nullptr;
     }
 
-    auto layoutsAttrArray =
-        llvm::to_vector_of<IREE::Encoding::EncodingLayoutAttrInterface>(
-            layoutsAttr.getValue());
     Value res;
-    for (auto attr : layoutsAttrArray) {
+    for (auto attr :
+         layoutsAttr.getAsRange<SerializedEncodingLayoutAttrInterface>()) {
       Value requestedSize =
           attr.calculateStorageSizeInBytes(loc, builder, type, dynamicDims);
       if (!res) {
