@@ -11,16 +11,22 @@
 #include "iree/compiler/Dialect/Stream/IR/StreamTraits.h"
 #include "iree/compiler/Dialect/Stream/IR/StreamTypes.h"
 #include "iree/compiler/Dialect/Stream/Transforms/Passes.h"
+#include "iree/compiler/Dialect/Util/IR/UtilTypes.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
@@ -97,11 +103,29 @@ static LogicalResult
 updateBindingEncodings(FunctionOpInterface funcOp,
                        ArrayRef<Attribute> bindingLayoutTypeAttrs) {
   Region &region = funcOp.getFunctionBody();
+  // llvm::errs() << "Func op" << funcOp << "\n";
+  // llvm::errs() << "bindingLayoutTypeAttrs: [";
+  // llvm::interleaveComma(bindingLayoutTypeAttrs, llvm::errs());
+  // llvm::errs() << "]\n";
+
+  auto argsWithBindings =
+      llvm::filter_to_vector(region.getArguments(), [](BlockArgument arg) {
+        return isa<IREE::Stream::BindingType>(arg.getType());
+      });
+  // llvm::errs() << "args with bindings: [";
+  // llvm::interleaveComma(argsWithBindings, llvm::errs());
+  // llvm::errs() << "]\n";
+
+  auto usedBindingsTypes =
+      llvm::filter_to_vector(bindingLayoutTypeAttrs, [](Attribute attr) {
+        return !isa<Util::UnusedType>(cast<TypeAttr>(attr).getValue());
+      });
+  // llvm::errs() << "used bindings [";
+  // llvm::interleaveComma(usedBindingsTypes, llvm::errs());
+  // llvm::errs() << "]\n";
+
   for (auto [arg, newTypeAttr] :
-       llvm::zip_equal(region.getArguments(), bindingLayoutTypeAttrs)) {
-    if (!isa<IREE::Stream::BindingType>(arg.getType())) {
-      continue;
-    }
+       llvm::zip(argsWithBindings, usedBindingsTypes)) {
     auto newType =
         dyn_cast<RankedTensorType>(cast<TypeAttr>(newTypeAttr).getValue());
     if (!newType) {
