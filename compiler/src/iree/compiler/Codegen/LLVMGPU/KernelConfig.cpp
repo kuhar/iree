@@ -499,7 +499,7 @@ getVectorDistributeReductionConfig(
     const int64_t maxParallelFactor = workgroupSize / 4;
     for (int64_t parallelFactor = 2; (parallelFactor < maxParallelFactor) &&
                                      (parallelBound % parallelFactor == 0) &&
-                                     (parallelBound > parallelFactor);
+                                     (parallelBound >= parallelFactor);
          parallelFactor *= 2) {
       numParallelReductions = parallelFactor;
     }
@@ -862,7 +862,7 @@ setReductionVectorDistributionConfig(IREE::GPU::TargetAttr target,
   // workgroup processes all elements in reduction dimensions. Need to make sure
   // the workgroup size we use can divide the total reduction size, and it's
   // also within hardware limitations.
-  const int64_t maxWorkgroupSize = 1024;
+  const int64_t maxWorkgroupSize = 64;
   int64_t workgroupSize = reductionSize / threadLoads;
   if (workgroupSize > maxWorkgroupSize) {
     workgroupSize = llvm::APIntOps::GreatestCommonDivisor(
