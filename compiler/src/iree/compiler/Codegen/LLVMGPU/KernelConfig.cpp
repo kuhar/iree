@@ -6,6 +6,7 @@
 
 #include "iree/compiler/Codegen/LLVMGPU/KernelConfig.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -499,7 +500,7 @@ getVectorDistributeReductionConfig(
     const int64_t maxParallelFactor = workgroupSize / 4;
     for (int64_t parallelFactor = 2; (parallelFactor < maxParallelFactor) &&
                                      (parallelBound % parallelFactor == 0) &&
-                                     (parallelBound >= parallelFactor);
+                                     (parallelBound > parallelFactor);
          parallelFactor *= 2) {
       numParallelReductions = parallelFactor;
     }
@@ -862,7 +863,8 @@ setReductionVectorDistributionConfig(IREE::GPU::TargetAttr target,
   // workgroup processes all elements in reduction dimensions. Need to make sure
   // the workgroup size we use can divide the total reduction size, and it's
   // also within hardware limitations.
-  const int64_t maxWorkgroupSize = 64;
+  ArrayRef<int32_t> maxWgSizes = wgp.getMaxWorkgroupSizes();
+  const int64_t maxWorkgroupSize = *std::max_element(maxWgSizes.begin(), maxWgSizes.end());
   int64_t workgroupSize = reductionSize / threadLoads;
   if (workgroupSize > maxWorkgroupSize) {
     workgroupSize = llvm::APIntOps::GreatestCommonDivisor(
@@ -880,19 +882,10 @@ setReductionVectorDistributionConfig(IREE::GPU::TargetAttr target,
     *parallelSize *= bounds[dim];
   }
 
-  // Total parallel size that can fill the GPU with enough workgorups.
-  // TODO: query from the target device; roughly 2x hardware compute unit.
-  const int parallelThreshold = 256;
-  // How many 128-bit vectors each thread should at least read.
-  const int targetVectorCount = 8;
-  while (parallelSize && *parallelSize > parallelThreshold &&
-         (workgroupSize / 2) % subgroupSize == 0 &&
-         reductionSize / (workgroupSize * threadLoads) < targetVectorCount) {
-    // Use less subgroups per workgroup..
-    workgroupSize /= 2;
-    // in order to host more workgroups per hardware compute unit.
-    *parallelSize /= 2;
-  }
+  IREE::GPU::TargetChipAttr chip = target.getChip();
+  int numComputeUnits = chip ? chip.getWgpCount() : 256;
+  if (parallelSize && *parallelSize > numComputeUnits * 2)
+    workgroupSize = target.getPreferredSubgroupSize();
 
   // TODO(pashu123): Currently, the threadLoads is done on the basis of
   // the root operation and ignores other operation within a dispatch.

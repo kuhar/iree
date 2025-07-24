@@ -385,16 +385,19 @@ std::optional<TargetDetails> getAMDGPUTargetDetails(StringRef target) {
   static const ChipDetails mi300aChip = {228, "mi300a"};
   static const ChipDetails mi308xChip = {80, "mi308x"};
   static const ChipDetails mi325xChip = {304, "mi325x"};
+  static const ChipDetails gfx942GenericChip = {304, std::nullopt};
 
   // "AMD Instinct MI200 Series Accelerator Product Offerings" in Page 14 of
   // https://www.amd.com/content/dam/amd/en/documents/instinct-business-docs/white-papers/amd-cdna2-white-paper.pdf
   static const ChipDetails mi250xChip = {220, "mi250x"};
   static const ChipDetails mi250Chip = {208, "mi250"};
   static const ChipDetails mi210Chip = {104, "mi210"};
+  static const ChipDetails gfx90aGenericChip = {220, std::nullopt};
 
   // "AMD CDNA Architecture Compute Units" in Page 5 of
   // https://www.amd.com/content/dam/amd/en/documents/instinct-business-docs/white-papers/amd-cdna-white-paper.pdf
   static const ChipDetails mi100Chip = {120, "mi100"};
+  static const ChipDetails gfx908GenericChip = {120, std::nullopt};
 
   // --- RDNA --- //
 
@@ -411,6 +414,7 @@ std::optional<TargetDetails> getAMDGPUTargetDetails(StringRef target) {
   static const ChipDetails rx9070xtChip = {64 / 2, "rx9070xt"};
   static const ChipDetails rx9070Chip = {56 / 2, "rx9070"};
   static const ChipDetails rx9060xtChip = {32 / 2, "rx9060xt"};
+  static const ChipDetails rdna4GenericChip = {64 / 2, std::nullopt};
 
   // AMD RDNA3.
   static const ChipDetails rx7900xtxChip = {96 / 2, "rx7900xtx"};
@@ -421,22 +425,23 @@ std::optional<TargetDetails> getAMDGPUTargetDetails(StringRef target) {
   static const ChipDetails w7900Chip = {96 / 2, "w7900"};
   static const ChipDetails w7800Chip = {70 / 2, "w7800"};
   static const ChipDetails w7700Chip = {48 / 2, "w7700"};
+  static const ChipDetails rdna3GenericChip = {96 / 2, std::nullopt};
 
   // See https://llvm.org/docs/AMDGPUUsage.html#processors for gfxN to
   // cdnaN/rdnaN mapping.
   return llvm::StringSwitch<std::optional<TargetDetails>>(target.lower())
-      .Cases("cdna4", "gfx950", TargetDetails{cdna4Wgp, nullptr})
+      .Cases("cdna4", "gfx950", TargetDetails{cdna4Wgp, &gfx942GenericChip})
       .Case("mi325x", TargetDetails{cdna3Wgp, &mi325xChip})
       .Case("mi300x", TargetDetails{cdna3Wgp, &mi300xChip})
       .Case("mi300a", TargetDetails{cdna3Wgp, &mi300aChip})
       .Case("mi308x", TargetDetails{cdna3Wgp, &mi308xChip})
-      .Cases("cdna3", "gfx942", TargetDetails{cdna3Wgp, nullptr})
+      .Cases("cdna3", "gfx942", TargetDetails{cdna3Wgp, &gfx942GenericChip})
       .Case("mi250x", TargetDetails{cdna2Wgp, &mi250xChip})
       .Case("mi250", TargetDetails{cdna2Wgp, &mi250Chip})
       .Case("mi210", TargetDetails{cdna2Wgp, &mi210Chip})
-      .Cases("cdna2", "gfx90a", TargetDetails{cdna2Wgp, nullptr})
+      .Cases("cdna2", "gfx90a", TargetDetails{cdna2Wgp, &gfx90aGenericChip})
       .Case("mi100", TargetDetails{cdna1Wgp, &mi100Chip})
-      .Cases("cdna1", "gfx908", TargetDetails{cdna1Wgp, nullptr})
+      .Cases("cdna1", "gfx908", TargetDetails{cdna1Wgp, &gfx908GenericChip})
       // https://www.techpowerup.com/gpu-specs/radeon-rx-9070-xt.c4229
       .Case("rx9070xt", TargetDetails{rdna4Wgp, &rx9070xtChip})
       // https://www.techpowerup.com/gpu-specs/radeon-rx-9070.c4250
@@ -461,9 +466,9 @@ std::optional<TargetDetails> getAMDGPUTargetDetails(StringRef target) {
       .Case("w7800", TargetDetails{rdna3Wgp, &w7800Chip})
       // https://www.techpowerup.com/gpu-specs/radeon-pro-w7700.c4184
       .Case("w7700", TargetDetails{rdna3Wgp, &w7700Chip})
-      .Cases("rdna4", "gfx1200", "gfx1201", TargetDetails{rdna4Wgp, nullptr})
+      .Cases("rdna4", "gfx1200", "gfx1201", TargetDetails{rdna4Wgp, &rdna4GenericChip})
       .Cases("rdna3", "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1150",
-             "gfx1151", TargetDetails{rdna3Wgp, nullptr})
+             "gfx1151", TargetDetails{rdna3Wgp, &rdna3GenericChip})
       .Cases("rdna2", "gfx1030", "gfx1031", "gfx1032", "gfx1033", "gfx1034",
              "gfx1035", "gfx1036", TargetDetails{rdna2Wgp, nullptr})
       .Cases("rdna1", "gfx1010", "gfx1011", "gfx1012", "gfx1013",
