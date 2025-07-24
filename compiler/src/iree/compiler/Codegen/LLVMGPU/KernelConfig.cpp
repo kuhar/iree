@@ -859,19 +859,6 @@ setReductionVectorDistributionConfig(IREE::GPU::TargetAttr target,
       threadLoads /= 2;
     }
   }
-  // Deduce the workgroup size we should use for reduction. Currently a
-  // workgroup processes all elements in reduction dimensions. Need to make sure
-  // the workgroup size we use can divide the total reduction size, and it's
-  // also within hardware limitations.
-  ArrayRef<int32_t> maxWgSizes = wgp.getMaxWorkgroupSizes();
-  const int64_t maxWorkgroupSize = *std::max_element(maxWgSizes.begin(), maxWgSizes.end());
-  int64_t workgroupSize = reductionSize / threadLoads;
-  if (workgroupSize > maxWorkgroupSize) {
-    workgroupSize = llvm::APIntOps::GreatestCommonDivisor(
-                        {64, static_cast<uint64_t>(workgroupSize)},
-                        {64, static_cast<uint64_t>(maxWorkgroupSize)})
-                        .getZExtValue();
-  }
 
   std::optional<int64_t> parallelSize = 1;
   for (int64_t dim : parallelDims) {
@@ -882,10 +869,40 @@ setReductionVectorDistributionConfig(IREE::GPU::TargetAttr target,
     *parallelSize *= bounds[dim];
   }
 
+  // Deduce the workgroup size we should use for reduction. Currently a
+  // workgroup processes all elements in reduction dimensions. Need to make sure
+  // the workgroup size we use can divide the total reduction size, and it's
+  // also within hardware limitations.
+  ArrayRef<int32_t> maxWgSizes = wgp.getMaxWorkgroupSizes();
+  int64_t maxWorkgroupSize = *std::max_element(maxWgSizes.begin(), maxWgSizes.end());
   IREE::GPU::TargetChipAttr chip = target.getChip();
   int numComputeUnits = chip ? chip.getWgpCount() : 256;
+
+  // If there is enough work to saturate all CUs * 2, use single subgroup per workgroup
   if (parallelSize && *parallelSize > numComputeUnits * 2)
-    workgroupSize = target.getPreferredSubgroupSize();
+    maxWorkgroupSize = target.getPreferredSubgroupSize();
+
+  int64_t workgroupSize = reductionSize / threadLoads;
+  if (workgroupSize > maxWorkgroupSize) {
+    workgroupSize = llvm::APIntOps::GreatestCommonDivisor(
+                        {64, static_cast<uint64_t>(workgroupSize)},
+                        {64, static_cast<uint64_t>(maxWorkgroupSize)})
+                        .getZExtValue();
+  }
+
+  // Total parallel size that can fill the GPU with enough workgorups.
+  // TODO: query from the target device; roughly 2x hardware compute unit.
+  const int parallelThreshold = 256;
+  // How many 128-bit vectors each thread should at least read.
+  const int targetVectorCount = 8;
+  while (parallelSize && *parallelSize > parallelThreshold &&
+         (workgroupSize / 2) % subgroupSize == 0 &&
+         reductionSize / (workgroupSize * threadLoads) < targetVectorCount) {
+    // Use less subgroups per workgroup..
+    workgroupSize /= 2;
+    // in order to host more workgroups per hardware compute unit.
+    *parallelSize /= 2;
+  }
 
   // TODO(pashu123): Currently, the threadLoads is done on the basis of
   // the root operation and ignores other operation within a dispatch.
