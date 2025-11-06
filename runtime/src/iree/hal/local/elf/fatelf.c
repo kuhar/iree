@@ -26,10 +26,10 @@ iree_status_t iree_fatelf_select(iree_const_byte_span_t file_data,
   const iree_fatelf_header_t* raw_header =
       (const iree_fatelf_header_t*)file_data.data;
   iree_fatelf_header_t host_header = {
-      .magic = iree_unaligned_load_le_u32(&raw_header->magic),
-      .version = iree_unaligned_load_le_u16(&raw_header->version),
-      .record_count = iree_unaligned_load_le_u8(&raw_header->record_count),
-      .reserved = iree_unaligned_load_le_u8(&raw_header->reserved),
+      .magic = iree_unaligned_load_u32(&raw_header->magic),
+      .version = iree_unaligned_load_u16(&raw_header->version),
+      .record_count = iree_unaligned_load_u8(&raw_header->record_count),
+      .reserved = iree_unaligned_load_u8(&raw_header->reserved),
   };
 
   // Ignore if not a FatELF.
@@ -64,15 +64,15 @@ iree_status_t iree_fatelf_select(iree_const_byte_span_t file_data,
   for (iree_elf64_byte_t i = 0; i < host_header.record_count; ++i) {
     const iree_fatelf_record_t* raw_record = &raw_header->records[i];
     const iree_fatelf_record_t host_record = {
-        .machine = iree_unaligned_load_le_u16(&raw_record->machine),
-        .osabi = iree_unaligned_load_le_u8(&raw_record->osabi),
-        .osabi_version = iree_unaligned_load_le_u8(&raw_record->osabi_version),
-        .word_size = iree_unaligned_load_le_u8(&raw_record->word_size),
-        .byte_order = iree_unaligned_load_le_u8(&raw_record->byte_order),
-        .reserved0 = iree_unaligned_load_le_u8(&raw_record->reserved0),
-        .reserved1 = iree_unaligned_load_le_u8(&raw_record->reserved1),
-        .offset = iree_unaligned_load_le_u64(&raw_record->offset),
-        .size = iree_unaligned_load_le_u64(&raw_record->size),
+        .machine = iree_unaligned_load_u16(&raw_record->machine),
+        .osabi = iree_unaligned_load_u8(&raw_record->osabi),
+        .osabi_version = iree_unaligned_load_u8(&raw_record->osabi_version),
+        .word_size = iree_unaligned_load_u8(&raw_record->word_size),
+        .byte_order = iree_unaligned_load_u8(&raw_record->byte_order),
+        .reserved0 = iree_unaligned_load_u8(&raw_record->reserved0),
+        .reserved1 = iree_unaligned_load_u8(&raw_record->reserved1),
+        .offset = iree_unaligned_load_u64(&raw_record->offset),
+        .size = iree_unaligned_load_u64(&raw_record->size),
     };
     if (!iree_elf_machine_is_valid(host_record.machine)) continue;
     if (host_record.osabi != IREE_ELF_ELFOSABI_NONE &&
