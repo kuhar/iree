@@ -1370,7 +1370,7 @@ createModuleStructure(IREE::VM::ModuleOp moduleOp,
         auto funcName = funcOp.getName();
         functions += std::string("{") +
                      "(iree_vm_native_function_shim_t)iree_emitc_shim, " +
-                     "(iree_vm_native_function_target_t)" + funcName.str() +
+                     "(iree_vm_native_function_target2_t)" + funcName.str() +
                      "},";
       }
     }

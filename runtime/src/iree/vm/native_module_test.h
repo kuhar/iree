@@ -101,9 +101,9 @@ static const iree_vm_native_export_descriptor_t module_a_exports_[] = {
 };
 static const iree_vm_native_function_ptr_t module_a_funcs_[] = {
     {(iree_vm_native_function_shim_t)call_shim_i32_i32,
-     (iree_vm_native_function_target_t)module_a_add_1},
+     (iree_vm_native_function_target2_t)module_a_add_1},
     {(iree_vm_native_function_shim_t)call_shim_i32_i32,
-     (iree_vm_native_function_target_t)module_a_sub_1},
+     (iree_vm_native_function_target2_t)module_a_sub_1},
 };
 static_assert(IREE_ARRAYSIZE(module_a_funcs_) ==
                   IREE_ARRAYSIZE(module_a_exports_),
@@ -255,7 +255,7 @@ static iree_status_t module_b_entry(iree_vm_stack_t* stack, module_b_t* module,
 // on versions, access rights, etc.
 static const iree_vm_native_function_ptr_t module_b_funcs_[] = {
     {(iree_vm_native_function_shim_t)call_shim_i32_i32,
-     (iree_vm_native_function_target_t)module_b_entry},
+     (iree_vm_native_function_target2_t)module_b_entry},
 };
 
 static const iree_vm_native_import_descriptor_t module_b_imports_[] = {

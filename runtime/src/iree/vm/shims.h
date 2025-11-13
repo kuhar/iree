@@ -66,11 +66,6 @@
 // Shim function declaration/definition and accessor utilities
 //===----------------------------------------------------------------------===//
 
-typedef iree_status_t(IREE_API_PTR* iree_vm_native_function_target2_t)(
-    iree_vm_stack_t* IREE_RESTRICT stack, void* IREE_RESTRICT module,
-    void* IREE_RESTRICT module_state, const void* IREE_RESTRICT args,
-    void* IREE_RESTRICT rets);
-
 #define IREE_VM_ABI_DECLARE_SHIM(arg_types, ret_types)                         \
   iree_status_t iree_vm_shim_##arg_types##_##ret_types(                        \
       iree_vm_stack_t* IREE_RESTRICT stack,                                    \
