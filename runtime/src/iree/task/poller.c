@@ -12,7 +12,7 @@
 #include "iree/task/task_impl.h"
 #include "iree/task/tuning.h"
 
-static int iree_task_poller_main(iree_task_poller_t* poller);
+static int iree_task_poller_main(void* ptr);
 
 iree_status_t iree_task_poller_initialize(
     iree_task_executor_t* executor,
@@ -110,7 +110,9 @@ void iree_task_poller_request_exit(iree_task_poller_t* poller) {
 
 // Returns true if the wait thread is in the zombie state (exited and awaiting
 // teardown).
-static bool iree_task_poller_is_zombie(iree_task_poller_t* poller) {
+// Pass poller as void* to match the function signature of iree_condition_fn_t.
+static bool iree_task_poller_is_zombie(void* ptr) {
+  iree_task_poller_t* poller = (iree_task_poller_t*)ptr;
   return iree_atomic_load(&poller->state, iree_memory_order_acquire) ==
          IREE_TASK_POLLER_STATE_ZOMBIE;
 }
@@ -525,7 +527,9 @@ static void iree_task_poller_pump_until_exit(iree_task_poller_t* poller) {
 }
 
 // Thread entry point for the poller wait thread.
-static int iree_task_poller_main(iree_task_poller_t* poller) {
+// Pass poller as void* to match the function signature of iree_thread_entry_t.
+static int iree_task_poller_main(void* ptr) {
+  iree_task_poller_t* poller = (iree_task_poller_t*)ptr;
   IREE_TRACE_ZONE_BEGIN(thread_zone);
 
   // Reset affinity (as it can change over time).

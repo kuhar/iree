@@ -1157,8 +1157,10 @@ typedef struct iree_hal_hip_semaphore_external_timepoint_wait_data_t {
   uint64_t value;
 } iree_hal_hip_semaphore_external_timepoint_wait_data_t;
 
-bool iree_hal_hip_semaphore_timepoint_already_exported(
-    iree_hal_hip_semaphore_external_timepoint_wait_data_t* data) {
+// Pass data as void* to match the function signature of iree_condition_fn_t.
+bool iree_hal_hip_semaphore_timepoint_already_exported(void* ptr) {
+  iree_hal_hip_semaphore_external_timepoint_wait_data_t* data =
+      (iree_hal_hip_semaphore_external_timepoint_wait_data_t*)ptr;
   iree_slim_mutex_lock(&data->semaphore->mutex);
   bool ret = data->semaphore->max_value_to_be_signaled >= data->value;
   iree_slim_mutex_unlock(&data->semaphore->mutex);

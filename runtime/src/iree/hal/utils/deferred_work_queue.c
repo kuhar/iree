@@ -450,11 +450,9 @@ static void iree_hal_deferred_work_queue_completion_area_deinitialize(
 }
 
 // The main function for the ready-list processing worker thread.
-static int iree_hal_deferred_work_queue_worker_execute(
-    iree_hal_deferred_work_queue_t* actions);
+static int iree_hal_deferred_work_queue_worker_execute(void* ptr);
 
-static int iree_hal_deferred_work_queue_completion_execute(
-    iree_hal_deferred_work_queue_t* actions);
+static int iree_hal_deferred_work_queue_completion_execute(void* ptr);
 
 //===----------------------------------------------------------------------===//
 // Deferred work queue
@@ -1462,15 +1460,23 @@ iree_status_t iree_hal_deferred_work_queue_issue(
 // Worker routines
 //===----------------------------------------------------------------------===//
 
+// Pass working_area as void* to match the function signature of
+// iree_condition_fn_t.
 static bool iree_hal_deferred_work_queue_worker_has_incoming_request(
-    iree_hal_deferred_work_queue_working_area_t* working_area) {
+    void* ptr) {
+  iree_hal_deferred_work_queue_working_area_t* working_area =
+      (iree_hal_deferred_work_queue_working_area_t*)ptr;
   iree_hal_deferred_work_queue_worker_state_t value =
       iree_atomic_load(&working_area->worker_state, iree_memory_order_acquire);
   return value == IREE_HAL_WORKER_STATE_WORKLOAD_PENDING;
 }
 
+// Pass completion_area as void* to match the function signature of
+// iree_condition_fn_t.
 static bool iree_hal_deferred_work_queue_completion_has_incoming_request(
-    iree_hal_deferred_work_queue_completion_area_t* completion_area) {
+    void* ptr) {
+  iree_hal_deferred_work_queue_completion_area_t* completion_area =
+      (iree_hal_deferred_work_queue_completion_area_t*)ptr;
   iree_hal_deferred_work_queue_worker_state_t value = iree_atomic_load(
       &completion_area->worker_state, iree_memory_order_acquire);
   return value == IREE_HAL_WORKER_STATE_WORKLOAD_PENDING;
@@ -1575,8 +1581,10 @@ static void iree_hal_deferred_work_queue_worker_process_completion(
 }
 
 // The main function for the completion worker thread.
-static int iree_hal_deferred_work_queue_completion_execute(
-    iree_hal_deferred_work_queue_t* actions) {
+// Pass actions as void* to match the function signature of iree_thread_entry_t.
+static int iree_hal_deferred_work_queue_completion_execute(void* ptr) {
+  iree_hal_deferred_work_queue_t* actions =
+      (iree_hal_deferred_work_queue_t*)ptr;
   iree_hal_deferred_work_queue_completion_area_t* completion_area =
       &actions->completion_area;
 
@@ -1617,8 +1625,10 @@ static int iree_hal_deferred_work_queue_completion_execute(
 }
 
 // The main function for the ready-list processing worker thread.
-static int iree_hal_deferred_work_queue_worker_execute(
-    iree_hal_deferred_work_queue_t* actions) {
+// Pass actions as void* to match the function signature of iree_thread_entry_t.
+static int iree_hal_deferred_work_queue_worker_execute(void* ptr) {
+  iree_hal_deferred_work_queue_t* actions =
+      (iree_hal_deferred_work_queue_t*)ptr;
   iree_hal_deferred_work_queue_working_area_t* working_area =
       &actions->working_area;
 

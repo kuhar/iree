@@ -1093,8 +1093,10 @@ static iree_status_t iree_hal_hip_dispatch_completed_create(
   return iree_ok_status();
 }
 
-static bool iree_hal_hip_dispatch_is_completed(
-    iree_hal_hip_dispatch_completed_data_t* data) {
+// Pass data as void* to match the function signature of iree_condition_fn_t.
+static bool iree_hal_hip_dispatch_is_completed(void* ptr) {
+  iree_hal_hip_dispatch_completed_data_t* data =
+      (iree_hal_hip_dispatch_completed_data_t*)ptr;
   iree_slim_mutex_lock(&data->completed_mutex);
   bool ret = data->completed;
   iree_slim_mutex_unlock(&data->completed_mutex);

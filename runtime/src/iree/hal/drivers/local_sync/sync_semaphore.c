@@ -250,8 +250,10 @@ typedef struct iree_hal_sync_semaphore_notify_state_t {
   uint64_t value;
 } iree_hal_sync_semaphore_notify_state_t;
 
-static bool iree_hal_sync_semaphore_is_signaled(
-    iree_hal_sync_semaphore_notify_state_t* state) {
+// Pass state as void* to match the function signature of iree_condition_fn_t.
+static bool iree_hal_sync_semaphore_is_signaled(void* ptr) {
+  iree_hal_sync_semaphore_notify_state_t* state =
+      (iree_hal_sync_semaphore_notify_state_t*)ptr;
   iree_hal_sync_semaphore_t* semaphore = state->semaphore;
   iree_slim_mutex_lock(&semaphore->mutex);
   bool is_signaled = semaphore->current_value >= state->value ||
@@ -314,8 +316,11 @@ static iree_status_t iree_hal_sync_semaphore_wait(
 
 // Returns true if any semaphore in the list has signaled (or failed).
 // Used with with iree_condition_fn_t and must match that signature.
-static bool iree_hal_sync_semaphore_any_signaled(
-    const iree_hal_semaphore_list_t* semaphore_list) {
+// Pass semaphore_list as void* to match the function signature of
+// iree_condition_fn_t.
+static bool iree_hal_sync_semaphore_any_signaled(void* ptr) {
+  const iree_hal_semaphore_list_t* semaphore_list =
+      (const iree_hal_semaphore_list_t*)ptr;
   for (iree_host_size_t i = 0; i < semaphore_list->count; ++i) {
     iree_hal_sync_semaphore_t* semaphore =
         iree_hal_sync_semaphore_cast(semaphore_list->semaphores[i]);
@@ -331,8 +336,11 @@ static bool iree_hal_sync_semaphore_any_signaled(
 
 // Returns true if all semaphores in the list has signaled (or any failed).
 // Used with with iree_condition_fn_t and must match that signature.
-static bool iree_hal_sync_semaphore_all_signaled(
-    const iree_hal_semaphore_list_t* semaphore_list) {
+// Pass semaphore_list as void* to match the function signature of
+// iree_condition_fn_t.
+static bool iree_hal_sync_semaphore_all_signaled(void* ptr) {
+  const iree_hal_semaphore_list_t* semaphore_list =
+      (const iree_hal_semaphore_list_t*)ptr;
   for (iree_host_size_t i = 0; i < semaphore_list->count; ++i) {
     iree_hal_sync_semaphore_t* semaphore =
         iree_hal_sync_semaphore_cast(semaphore_list->semaphores[i]);

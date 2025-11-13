@@ -19,7 +19,7 @@
 
 #define IREE_TASK_WORKER_MIN_STACK_SIZE (32 * 1024)
 
-static int iree_task_worker_main(iree_task_worker_t* worker);
+static int iree_task_worker_main(void* ptr);
 
 iree_status_t iree_task_worker_initialize(
     iree_task_executor_t* executor, iree_host_size_t worker_index,
@@ -100,7 +100,9 @@ void iree_task_worker_request_exit(iree_task_worker_t* worker) {
 
 // Returns true if the worker is in the zombie state (exited and awaiting
 // teardown).
-static bool iree_task_worker_is_zombie(iree_task_worker_t* worker) {
+// Pass worker as void* to match the function signature of iree_condition_fn_t.
+static bool iree_task_worker_is_zombie(void* ptr) {
+  iree_task_worker_t* worker = (iree_task_worker_t*)ptr;
   return iree_atomic_load(&worker->state, iree_memory_order_acquire) ==
          IREE_TASK_WORKER_STATE_ZOMBIE;
 }
@@ -380,7 +382,9 @@ static void iree_task_worker_pump_until_exit(iree_task_worker_t* worker) {
 }
 
 // Thread entry point for each worker.
-static int iree_task_worker_main(iree_task_worker_t* worker) {
+// Pass worker as void* to match the function signature of iree_thread_entry_t.
+static int iree_task_worker_main(void* ptr) {
+  iree_task_worker_t* worker = (iree_task_worker_t*)ptr;
   IREE_TRACE_ZONE_BEGIN(thread_zone);
 
   // We cannot rely on the global process settings for FPU state.

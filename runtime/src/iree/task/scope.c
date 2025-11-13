@@ -157,6 +157,11 @@ bool iree_task_scope_is_idle(iree_task_scope_t* scope) {
   return (iree_atomic_ref_count_load(&scope->pending_submissions) == 0);
 }
 
+// Wrapper for iree_task_scope_is_idle to match iree_condition_fn_t signature.
+static bool iree_task_scope_is_idle_wrapper(void* ptr) {
+  return iree_task_scope_is_idle((iree_task_scope_t*)ptr);
+}
+
 iree_status_t iree_task_scope_wait_idle(iree_task_scope_t* scope,
                                         iree_time_t deadline_ns) {
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -171,9 +176,10 @@ iree_status_t iree_task_scope_wait_idle(iree_task_scope_t* scope,
     }
   } else {
     // Wait for the scope to enter the idle state.
-    if (!iree_notification_await(&scope->idle_notification,
-                                 (iree_condition_fn_t)iree_task_scope_is_idle,
-                                 scope, iree_make_deadline(deadline_ns))) {
+    if (!iree_notification_await(
+            &scope->idle_notification,
+            (iree_condition_fn_t)iree_task_scope_is_idle_wrapper, scope,
+            iree_make_deadline(deadline_ns))) {
       status = iree_status_from_code(IREE_STATUS_DEADLINE_EXCEEDED);
     }
   }

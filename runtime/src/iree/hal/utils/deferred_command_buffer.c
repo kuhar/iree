@@ -287,10 +287,13 @@ static iree_status_t iree_hal_deferred_command_buffer_execution_barrier(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_execution_barrier(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_execution_barrier_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_execution_barrier_t* cmd =
+      (const iree_hal_cmd_execution_barrier_t*)cmd_header;
   return iree_hal_command_buffer_execution_barrier(
       target_command_buffer, cmd->source_stage_mask, cmd->target_stage_mask,
       cmd->flags, cmd->memory_barrier_count, cmd->memory_barriers,
@@ -323,10 +326,13 @@ static iree_status_t iree_hal_deferred_command_buffer_signal_event(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_signal_event(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_signal_event_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_signal_event_t* cmd =
+      (const iree_hal_cmd_signal_event_t*)cmd_header;
   return iree_hal_command_buffer_signal_event(target_command_buffer, cmd->event,
                                               cmd->source_stage_mask);
 }
@@ -357,10 +363,13 @@ static iree_status_t iree_hal_deferred_command_buffer_reset_event(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_reset_event(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_reset_event_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_reset_event_t* cmd =
+      (const iree_hal_cmd_reset_event_t*)cmd_header;
   return iree_hal_command_buffer_reset_event(target_command_buffer, cmd->event,
                                              cmd->source_stage_mask);
 }
@@ -422,10 +431,13 @@ static iree_status_t iree_hal_deferred_command_buffer_wait_events(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_wait_events(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_wait_events_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_wait_events_t* cmd =
+      (const iree_hal_cmd_wait_events_t*)cmd_header;
   return iree_hal_command_buffer_wait_events(
       target_command_buffer, cmd->event_count,
       (const iree_hal_event_t**)cmd->events, cmd->source_stage_mask,
@@ -466,10 +478,13 @@ static iree_status_t iree_hal_deferred_command_buffer_advise_buffer(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_advise_buffer(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_advise_buffer_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_advise_buffer_t* cmd =
+      (const iree_hal_cmd_advise_buffer_t*)cmd_header;
   iree_hal_buffer_ref_t buffer_ref;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
       binding_table, cmd->buffer_ref, &buffer_ref));
@@ -514,10 +529,13 @@ static iree_status_t iree_hal_deferred_command_buffer_fill_buffer(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_fill_buffer(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_fill_buffer_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_fill_buffer_t* cmd =
+      (const iree_hal_cmd_fill_buffer_t*)cmd_header;
   iree_hal_buffer_ref_t target_ref;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
       binding_table, cmd->target_ref, &target_ref));
@@ -560,10 +578,13 @@ static iree_status_t iree_hal_deferred_command_buffer_update_buffer(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_update_buffer(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_update_buffer_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_update_buffer_t* cmd =
+      (const iree_hal_cmd_update_buffer_t*)cmd_header;
   iree_hal_buffer_ref_t target_ref;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
       binding_table, cmd->target_ref, &target_ref));
@@ -610,10 +631,13 @@ static iree_status_t iree_hal_deferred_command_buffer_copy_buffer(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_copy_buffer(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_copy_buffer_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_copy_buffer_t* cmd =
+      (const iree_hal_cmd_copy_buffer_t*)cmd_header;
   iree_hal_buffer_ref_t source_ref;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
       binding_table, cmd->source_ref, &source_ref));
@@ -664,10 +688,13 @@ static iree_status_t iree_hal_deferred_command_buffer_collective(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_collective(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_collective_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_collective_t* cmd =
+      (const iree_hal_cmd_collective_t*)cmd_header;
   iree_hal_buffer_ref_t send_ref;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
       binding_table, cmd->send_ref, &send_ref));
@@ -742,10 +769,13 @@ static iree_status_t iree_hal_deferred_command_buffer_dispatch(
   return iree_ok_status();
 }
 
+// Pass cmd_header as generic type to match iree_hal_cmd_apply_fn_t signature.
 static iree_status_t iree_hal_deferred_command_buffer_apply_dispatch(
     iree_hal_command_buffer_t* target_command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
-    const iree_hal_cmd_dispatch_t* cmd) {
+    iree_hal_cmd_header_t* cmd_header) {
+  const iree_hal_cmd_dispatch_t* cmd =
+      (const iree_hal_cmd_dispatch_t*)cmd_header;
   iree_hal_dispatch_config_t config = cmd->config;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
       binding_table, cmd->config.workgroup_count_ref,

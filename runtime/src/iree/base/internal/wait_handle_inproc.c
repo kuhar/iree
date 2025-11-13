@@ -234,7 +234,10 @@ typedef struct {
   iree_wait_handle_t* wake_handle;  // if set then wait-any
 } iree_wait_set_check_params_t;
 
-static bool iree_wait_set_check(const iree_wait_set_check_params_t* params) {
+// Pass params as void* to match the function signature of iree_condition_fn_t.
+static bool iree_wait_set_check(void* ptr) {
+  const iree_wait_set_check_params_t* params =
+      (const iree_wait_set_check_params_t*)ptr;
   iree_host_size_t ready_count = 0;
   for (iree_host_size_t i = 0; i < params->set->handle_count; ++i) {
     iree_wait_handle_t* wait_handle = &params->set->handles[i];
@@ -291,7 +294,9 @@ iree_status_t iree_wait_any(iree_wait_set_t* set, iree_time_t deadline_ns,
   return status;
 }
 
-static bool iree_futex_handle_check(iree_futex_handle_t* futex) {
+// Pass futex as void* to match the function signature of iree_condition_fn_t.
+static bool iree_futex_handle_check(void* ptr) {
+  iree_futex_handle_t* futex = (iree_futex_handle_t*)ptr;
   return iree_atomic_load(&futex->value, iree_memory_order_acquire) != 0;
 }
 
