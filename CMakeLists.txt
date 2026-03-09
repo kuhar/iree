@@ -454,6 +454,8 @@ if(IREE_HIP_TEST_TARGET_CHIP AND NOT IREE_ROCM_TEST_TARGET_CHIP)
   message(WARNING "IREE_HIP_TEST_TARGET_CHIP is deprecated; use IREE_ROCM_TEST_TARGET_CHIP instead.")
   set(IREE_ROCM_TEST_TARGET_CHIP "${IREE_HIP_TEST_TARGET_CHIP}" CACHE STRING "" FORCE)
 endif()
+set(IREE_ROCM_TEST_AMDGCNSPIRV OFF CACHE BOOL
+  "Use amdgcnspirv (SPIR-V output) for ROCm e2e tests.")
 
 #-------------------------------------------------------------------------------
 # Compiler Target Options

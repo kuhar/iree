@@ -981,7 +981,8 @@ addLowerAndOptimizeAddressComputationPasses(FunctionLikeNest &funcPassManager) {
 }
 
 static void addLowerToLLVMGPUPasses(OpPassManager &modulePassManager,
-                                    bool forROCDL, bool preserveDebugInfo) {
+                                    bool forROCDL, bool preserveDebugInfo,
+                                    bool useSPIRV = false) {
   modulePassManager.addPass(
       createConvertHALDescriptorTypeToGPUAddressSpacePass());
   modulePassManager.addPass(createCanonicalizerPass());
@@ -1083,6 +1084,9 @@ static void addLowerToLLVMGPUPasses(OpPassManager &modulePassManager,
     modulePassManager.addPass(createConvertToROCDLPass());
     modulePassManager.addNestedPass<LLVM::LLVMFuncOp>(
         createROCDLAnnotateKernelForTranslationPass());
+    if (useSPIRV) {
+      modulePassManager.addPass(createROCDLPrepareForSPIRVPass());
+    }
   } else {
     // convert to NVVM.
     modulePassManager.addPass(createConvertToNVVMPass());
@@ -1152,7 +1156,8 @@ void buildLLVMGPUCodegenConfigurationPassPipeline(
 }
 
 void buildLLVMGPUCodegenPassPipeline(OpPassManager &variantPassManager,
-                                     bool useROCM, bool preserveDebugInfo) {
+                                     bool useROCM, bool preserveDebugInfo,
+                                     bool useSPIRV) {
   // LLVMGPUSelectLoweringStrategyPass may have created ExecutableObjectAttr.
   // Hoisting them now deduplicates them and ensures that rewrite patterns don't
   // need to think about explicitly copying them over to new ops.
@@ -1186,7 +1191,7 @@ void buildLLVMGPUCodegenPassPipeline(OpPassManager &variantPassManager,
   //   - The module contains the final llvm.module ready to be serialized.
   //===--------------------------------------------------------------------===//
   addLowerToLLVMGPUPasses(variantPassManager.nest<ModuleOp>(), useROCM,
-                          preserveDebugInfo);
+                          preserveDebugInfo, useSPIRV);
 
   LLVM_DEBUG({
     llvm::dbgs() << "Using LLVMGPU pass pipeline:\n";
@@ -1232,6 +1237,9 @@ void registerCodegenLLVMGPUPasses() {
     Option<bool> preserveDebugInfo{
         *this, "preserve-debug-info",
         llvm::cl::desc("Preserve debug information (do not strip)")};
+    Option<bool> useSPIRV{
+        *this, "use-spirv",
+        llvm::cl::desc("Prepare LLVM dialect IR for the SPIR-V backend")};
   };
 
   static PassPipelineRegistration<> LLVMGPUConfigPipeline(
@@ -1254,8 +1262,8 @@ void registerCodegenLLVMGPUPasses() {
       "iree-codegen-linalg-to-rocdl-pipeline",
       "Runs the progressive lowering pipeline from Linalg to ROCDL",
       [](OpPassManager &passManager, const LLVMGPUPipelineOptions &options) {
-        buildLLVMGPUCodegenPassPipeline(passManager, true,
-                                        options.preserveDebugInfo);
+        buildLLVMGPUCodegenPassPipeline(
+            passManager, true, options.preserveDebugInfo, options.useSPIRV);
       });
 
   static PassPipelineRegistration<> LLVMGPULinkingPipeline(

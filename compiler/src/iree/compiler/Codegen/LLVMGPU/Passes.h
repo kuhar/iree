@@ -77,7 +77,8 @@ void buildLLVMGPUCodegenConfigurationPassPipeline(
 /// the structured ops path. The pass manager `pm` in here should operate on
 /// the module within the IREE::HAL::ExecutableOp.
 void buildLLVMGPUCodegenPassPipeline(OpPassManager &variantPassManagery,
-                                     bool useROCM, bool preserveDebugInfo);
+                                     bool useROCM, bool preserveDebugInfo,
+                                     bool useSPIRV = false);
 
 /// Verify configuration set for the LLVMGPUVectorDistribute pass pipeline.
 LogicalResult verifyLLVMGPUVectorDistributePipeline(
