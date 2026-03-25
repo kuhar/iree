@@ -106,7 +106,8 @@ void iree_bench_run_one(const iree_bench_config_t* config,
   iree_bench_result_t result;
   memset(&result, 0, sizeof(result));
   result.name = entry->name;
-  result.unit = def->time_unit;
+  result.unit = config->time_unit != IREE_BENCH_UNIT_DEFAULT ? config->time_unit
+                                                             : def->time_unit;
   result.skipped = bench_state.skipped;
   result.skip_message = bench_state.skip_message;
   result.bytes_processed = bench_state.bytes_processed;
@@ -162,11 +163,18 @@ void iree_bench_run(const iree_bench_config_t* config,
   uint64_t clock_resolution_ns =
       iree_bench_detect_clock_resolution(&wall_timer);
 
-  // Resolve reporter.
+  // Resolve reporter. NULL = default console reporter to stdout.
+  iree_bench_console_reporter_state_t default_console_state;
+  iree_bench_reporter_t default_console;
   const iree_bench_reporter_t* reporter = config->reporter;
+  if (!reporter) {
+    iree_bench_console_reporter_init(&default_console_state, stdout);
+    default_console = iree_bench_reporter_console(&default_console_state);
+    reporter = &default_console;
+  }
 
   // Begin reporting.
-  if (reporter && reporter->begin) {
+  if (reporter->begin) {
     reporter->begin(reporter->user_data, config);
   }
 
@@ -181,7 +189,7 @@ void iree_bench_run(const iree_bench_config_t* config,
   }
 
   // End reporting.
-  if (reporter && reporter->end) {
+  if (reporter->end) {
     reporter->end(reporter->user_data);
   }
 }

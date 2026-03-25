@@ -21,7 +21,8 @@ extern "C" {
 // Computes the arithmetic mean of |values|.
 double iree_bench_stats_mean(const double* values, size_t count);
 
-// Computes the standard deviation (population) of |values|.
+// Computes the population standard deviation of |values| (divides by N, not
+// N-1). Appropriate for benchmark epochs which represent the full measurement.
 double iree_bench_stats_stddev(const double* values, size_t count);
 
 // Computes the median of |values|. Modifies |values| in-place (partial sort).

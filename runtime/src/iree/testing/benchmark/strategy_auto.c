@@ -63,10 +63,11 @@ static iree_bench_action_t iree_bench_strategy_auto_observe(
         action.iteration_count = s->current_iterations;
       }
     } else {
-      // Double iterations and try again.
-      s->current_iterations *= 2;
-      if (s->current_iterations > s->max_iterations) {
+      // Double iterations and try again (with overflow guard).
+      if (s->current_iterations > s->max_iterations / 2) {
         s->current_iterations = s->max_iterations;
+      } else {
+        s->current_iterations *= 2;
       }
       action.type = IREE_BENCH_ACTION_TRIAL;
       action.iteration_count = s->current_iterations;

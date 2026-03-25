@@ -87,14 +87,15 @@ static void iree_bench_console_report(void* user_data,
     return;
   }
 
-  double median_val, mad_val, mean_val;
-  const char* median_suffix;
-  const char* mad_suffix;
-  const char* mean_suffix;
+  // Determine unit from median, apply consistently to all columns.
+  double median_val;
+  const char* unit_suffix;
   iree_bench_auto_scale(result->median_ns, result->unit, &median_val,
-                        &median_suffix);
-  iree_bench_auto_scale(result->mad_ns, result->unit, &mad_val, &mad_suffix);
-  iree_bench_auto_scale(result->mean_ns, result->unit, &mean_val, &mean_suffix);
+                        &unit_suffix);
+  double scale =
+      (result->median_ns > 0.0) ? median_val / result->median_ns : 1.0;
+  double mad_val = result->mad_ns * scale;
+  double mean_val = result->mean_ns * scale;
 
   // Determine iteration count from first sample.
   uint64_t iters = 0;
@@ -116,13 +117,14 @@ static void iree_bench_console_report(void* user_data,
 
   fprintf(state->output,
           "%-40s %9.2f %-2s %9.2f %-2s %9.2f %-2s %8" PRIu64 " %s%s%s\n",
-          result->name, median_val, median_suffix, mad_val, mad_suffix,
-          mean_val, mean_suffix, iters, color_start, mape_buf, color_end);
+          result->name, median_val, unit_suffix, mad_val, unit_suffix, mean_val,
+          unit_suffix, iters, color_start, mape_buf, color_end);
 
-  // Throughput labels.
+  // Throughput labels. bytes/items_processed are totals across all iterations
+  // (matching Google Benchmark convention), so divide by total epoch time.
   if (result->bytes_processed > 0 && iters > 0) {
-    double bytes_per_sec =
-        (double)result->bytes_processed / (result->median_ns * 1e-9);
+    double total_ns = result->median_ns * (double)iters;
+    double bytes_per_sec = (double)result->bytes_processed / (total_ns * 1e-9);
     if (bytes_per_sec >= 1e9) {
       fprintf(state->output, "  %.2f GB/s\n", bytes_per_sec / 1e9);
     } else if (bytes_per_sec >= 1e6) {
@@ -132,8 +134,8 @@ static void iree_bench_console_report(void* user_data,
     }
   }
   if (result->items_processed > 0 && iters > 0) {
-    double items_per_sec =
-        (double)result->items_processed / (result->median_ns * 1e-9);
+    double total_ns = result->median_ns * (double)iters;
+    double items_per_sec = (double)result->items_processed / (total_ns * 1e-9);
     if (items_per_sec >= 1e6) {
       fprintf(state->output, "  %.2f M items/s\n", items_per_sec / 1e6);
     } else if (items_per_sec >= 1e3) {
