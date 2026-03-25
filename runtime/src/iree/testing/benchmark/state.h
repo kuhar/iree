@@ -81,7 +81,9 @@ void iree_bench_state_pause(iree_bench_state_t* state);
 // Resumes the timer after a pause.
 void iree_bench_state_resume(iree_bench_state_t* state);
 
-// Sets the iteration time directly (for manual timing mode).
+// Adds to the manual timing accumulator for the current epoch. Times
+// accumulate across calls within an epoch and are reset at epoch boundary.
+// Call once per iteration with that iteration's measured time.
 void iree_bench_state_set_iteration_time(iree_bench_state_t* state,
                                          double seconds);
 

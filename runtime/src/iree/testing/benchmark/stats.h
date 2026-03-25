@@ -32,8 +32,9 @@ double iree_bench_stats_median(double* values, size_t count);
 // Modifies |scratch| in-place (must be at least |count| elements).
 double iree_bench_stats_mad(double* values, size_t count, double* scratch);
 
-// Computes the Median Absolute Percentage Error of per-iteration times.
-// Each value[i] = elapsed_ns / iterations for that epoch.
+// Computes the Mean Absolute Percentage Error (relative to median) of
+// per-iteration times. Each value[i] = elapsed_ns / iterations for that epoch.
+// Result = mean(|x_i - median| / median). Used as a stability indicator.
 // Modifies |scratch| in-place (must be at least |count| elements).
 double iree_bench_stats_mape(double* values, size_t count, double* scratch);
 

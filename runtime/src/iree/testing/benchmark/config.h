@@ -68,7 +68,7 @@ struct iree_bench_def_t {
   uint64_t iteration_count;  // For FIXED. 0 = use global/auto.
   int64_t time_budget_ns;    // For TIME_BUDGET. 0 = use global/auto.
   uint64_t iteration_hint;   // Starting hint for AUTO. 0 = start at 1.
-  int64_t warmup_ns;         // -1 = use global default.
+  int64_t warmup_ns;         // -1 = use global default. Not yet implemented.
   iree_bench_fn_t run;
   void* user_data;
 };
@@ -108,10 +108,11 @@ typedef struct {
   // Reporter callbacks. NULL = default console reporter.
   const iree_bench_reporter_t* reporter;
 
-  // Emit raw JSON alongside console output. NULL = no.
+  // Emit raw JSON alongside console output. NULL = no. Not yet implemented.
   const char* json_output_path;
 
-  // Verbosity. 0 = normal, 1 = show trial runs, 2+ = debug.
+  // Verbosity. 0 = normal, 1 = show trial runs, 2+ = debug. Not yet
+  // implemented.
   int verbosity;
 } iree_bench_config_t;
 
