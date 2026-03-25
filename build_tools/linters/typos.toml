@@ -80,3 +80,5 @@ mye = "mye"
 # Workgroup coordinate variables (iz, iy).
 iz = "iz"
 iy = "iy"
+# Median Absolute Percentage Error (statistics).
+mape = "mape"
