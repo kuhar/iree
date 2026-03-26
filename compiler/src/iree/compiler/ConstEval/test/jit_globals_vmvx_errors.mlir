@@ -7,14 +7,18 @@
 // RUN:     --verify-diagnostics | \
 // RUN:     FileCheck %s
 
+// Trivial constant initializers are short-circuited and never reach the JIT
+// backend, so type-support limitations do not apply.
+
 // CHECK-LABEL: @eval_f16_tensor
 module @eval_f16_tensor {
+  // CHECK: util.global private @{{.+}} = dense<2.000000e+02> : tensor<5x6xf16>
   util.global private @hoisted : tensor<5x6xf16>
   util.func public @main() -> tensor<5x6xf16> {
     %hoisted = util.global.load @hoisted : tensor<5x6xf16>
     util.return %hoisted : tensor<5x6xf16>
   }
-  // expected-warning @+1 {{unsupported type for current jit configuration}}
+  // CHECK-NOT: util.initializer
   util.initializer attributes {iree.compiler.consteval} {
     %cst = arith.constant dense<2.0e+2> : tensor<5x6xf16>
     util.global.store %cst, @hoisted : tensor<5x6xf16>
@@ -25,12 +29,13 @@ module @eval_f16_tensor {
 // -----
 // CHECK-LABEL: @eval_bf16_tensor
 module @eval_bf16_tensor {
+  // CHECK: util.global private @{{.+}} = dense<2.000000e+02> : tensor<5x6xbf16>
   util.global private @hoisted : tensor<5x6xbf16>
   util.func public @main() -> tensor<5x6xbf16> {
     %hoisted = util.global.load @hoisted : tensor<5x6xbf16>
     util.return %hoisted : tensor<5x6xbf16>
   }
-  // expected-warning @+1 {{unsupported type for current jit configuration}}
+  // CHECK-NOT: util.initializer
   util.initializer attributes {iree.compiler.consteval} {
     %cst = arith.constant dense<2.0e+2> : tensor<5x6xbf16>
     util.global.store %cst, @hoisted : tensor<5x6xbf16>
@@ -41,12 +46,13 @@ module @eval_bf16_tensor {
 // -----
 // CHECK-LABEL: @eval_i4_tensor
 module @eval_i4_tensor {
+  // CHECK: util.global private @{{.+}} = dense<3> : tensor<5x6xi4>
   util.global private @hoisted : tensor<5x6xi4>
   util.func public @main() -> tensor<5x6xi4> {
     %hoisted = util.global.load @hoisted : tensor<5x6xi4>
     util.return %hoisted : tensor<5x6xi4>
   }
-  // expected-warning @+1 {{unsupported type for current jit configuration}}
+  // CHECK-NOT: util.initializer
   util.initializer attributes {iree.compiler.consteval} {
     %cst = arith.constant dense<3> : tensor<5x6xi4>
     util.global.store %cst, @hoisted : tensor<5x6xi4>

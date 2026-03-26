@@ -862,6 +862,10 @@ public:
     }
     if (programBuilder.getJitFunctions().empty()) {
       programBuilder.getTargetModule()->erase();
+      // Cleanup any initializers we short-circuited.
+      for (auto deadOp : deadInitOps) {
+        deadOp.erase();
+      }
       return;
     }
 

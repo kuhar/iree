@@ -163,8 +163,9 @@ module @eval_i1_tensor {
 
 // CHECK-LABEL: @eval_i4_tensor
 module @eval_i4_tensor {
+  // CHECK: util.global private @[[EVALED:.+]] = dense<3> : tensor<5x6xi4>
   util.global private @hoisted : tensor<5x6xi4>
-  // expected-warning @+1 {{unsupported type for current jit configuration}}
+  // CHECK-NOT: util.initializer
   util.initializer {
     %cst = arith.constant dense<3> : tensor<5x6xi4>
     util.global.store %cst, @hoisted : tensor<5x6xi4>
