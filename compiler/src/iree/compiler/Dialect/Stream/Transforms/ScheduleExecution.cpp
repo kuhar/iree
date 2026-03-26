@@ -471,11 +471,14 @@ struct RemoveBarriers : OpRewritePattern<IREE::Stream::AsyncBarrierOp> {
 struct ScheduleExecutionPass
     : IREE::Stream::impl::ScheduleExecutionPassBase<ScheduleExecutionPass> {
   LogicalResult initialize(MLIRContext *context) override {
+    // TODO(benvanik): less work here - maybe no patterns to just force folding?
     RewritePatternSet patterns(context);
-    for (auto *dialect : context->getLoadedDialects())
+    for (auto *dialect : context->getLoadedDialects()) {
       dialect->getCanonicalizationPatterns(patterns);
-    for (auto op : context->getRegisteredOperations())
+    }
+    for (auto op : context->getRegisteredOperations()) {
       op.getCanonicalizationPatterns(patterns, context);
+    }
     // Barriers are used only for analysis and can be removed as part of
     // cleanup.
     patterns.insert<RemoveBarriers>(context);

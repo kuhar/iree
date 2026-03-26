@@ -383,10 +383,12 @@ static bool deduplicateConstantGlobals(GlobalTable &globalTable) {
 struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
   LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet patterns(context);
-    for (auto *dialect : context->getLoadedDialects())
+    for (auto *dialect : context->getLoadedDialects()) {
       dialect->getCanonicalizationPatterns(patterns);
-    for (auto op : context->getRegisteredOperations())
+    }
+    for (auto op : context->getRegisteredOperations()) {
       op.getCanonicalizationPatterns(patterns, context);
+    }
     frozenPatterns =
         std::make_shared<FrozenRewritePatternSet>(std::move(patterns));
     return success();

@@ -4,6 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <memory>
 #include <utility>
 
 #include "iree/compiler/Dialect/Util/IR/UtilDialect.h"
@@ -32,10 +33,12 @@ public:
 
   LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet patterns(context);
-    for (auto *dialect : context->getLoadedDialects())
+    for (auto *dialect : context->getLoadedDialects()) {
       dialect->getCanonicalizationPatterns(patterns);
-    for (auto op : context->getRegisteredOperations())
+    }
+    for (auto op : context->getRegisteredOperations()) {
       op.getCanonicalizationPatterns(patterns, context);
+    }
     IREE::Util::populateCommonPatterns(context, patterns);
     frozenPatterns =
         std::make_shared<FrozenRewritePatternSet>(std::move(patterns));
