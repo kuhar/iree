@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <memory>
 
 #include "iree/compiler/Dialect/Util/Analysis/GlobalTable.h"
 #include "iree/compiler/Dialect/Util/IR/UtilDialect.h"
