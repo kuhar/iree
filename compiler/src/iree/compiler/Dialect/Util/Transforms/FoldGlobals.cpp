@@ -399,16 +399,17 @@ struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
     GlobalTable globalTable(moduleOp);
     beforeFoldingGlobals = globalTable.size();
 
-    // Canonicalize once before global folding to clean up the IR.
+    // TODO(benvanik): determine if we need this expensive folding.
+    // Canonicalize before global folding to clean up the IR.
     if (failed(applyPatternsGreedily(moduleOp, frozenPatterns, config))) {
       signalPassFailure();
       return;
     }
     globalTable.rebuild();
 
-    // Run global folding passes in a single iteration. The outer
-    // FixedPointIterator pipeline handles convergence by re-running
-    // canonicalization + CSE + this pass until stable.
+    // Run global folding passes in a single pass. When run inside a
+    // FixedPointIterator, the outer loop handles convergence. Standalone
+    // invocations rely on the natural phase ordering.
     bool didChange = false;
 
     LLVM_DEBUG(llvm::dbgs() << "==== inlineConstantGlobalStores ====\n");
@@ -445,6 +446,20 @@ struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
     if (deduplicateConstantGlobals(globalTable)) {
       LLVM_DEBUG(moduleOp.dump());
       didChange = true;
+    }
+
+    // Canonicalize after folding to clean up dead code (dead stores,
+    // dead constants) left behind by the folding passes.
+    if (didChange) {
+      if (failed(applyPatternsGreedily(moduleOp, frozenPatterns, config))) {
+        signalPassFailure();
+        return;
+      }
+      globalTable.rebuild();
+
+      // Run a second pass of erasure to clean up globals whose stores
+      // were removed by canonicalization.
+      eraseUnusedGlobals(globalTable);
     }
 
     afterFoldingGlobals =
