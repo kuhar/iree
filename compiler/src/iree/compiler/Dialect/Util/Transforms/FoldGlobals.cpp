@@ -398,66 +398,59 @@ struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
     mlir::ModuleOp moduleOp = getOperation();
     GlobalTable globalTable(moduleOp);
     beforeFoldingGlobals = globalTable.size();
-    bool didChangeAny = false;
-    for (int i = 0; i < 10; ++i) {
-      // TODO(benvanik): determine if we need this expensive folding.
-      if (failed(applyPatternsGreedily(moduleOp, frozenPatterns, config))) {
-        signalPassFailure();
-        return;
-      }
 
-      bool didChange = false;
+    // Canonicalize once before global folding to clean up the IR.
+    if (failed(applyPatternsGreedily(moduleOp, frozenPatterns, config))) {
+      signalPassFailure();
+      return;
+    }
+    globalTable.rebuild();
 
-      // Rebuild the global table after potential pattern changes.
-      globalTable.rebuild();
+    // Run global folding passes in a single iteration. The outer
+    // FixedPointIterator pipeline handles convergence by re-running
+    // canonicalization + CSE + this pass until stable.
+    bool didChange = false;
 
-      LLVM_DEBUG(llvm::dbgs() << "==== inlineConstantGlobalStores ====\n");
-      if (inlineConstantGlobalStores(globalTable)) {
-        LLVM_DEBUG(moduleOp.dump());
-        didChange = true;
-      }
+    LLVM_DEBUG(llvm::dbgs() << "==== inlineConstantGlobalStores ====\n");
+    if (inlineConstantGlobalStores(globalTable)) {
+      LLVM_DEBUG(moduleOp.dump());
+      didChange = true;
+    }
 
-      LLVM_DEBUG(llvm::dbgs() << "==== renameChainedGlobals ====\n");
-      if (renameChainedGlobals(globalTable)) {
-        LLVM_DEBUG(moduleOp.dump());
-        didChange = true;
-      }
+    LLVM_DEBUG(llvm::dbgs() << "==== renameChainedGlobals ====\n");
+    if (renameChainedGlobals(globalTable)) {
+      LLVM_DEBUG(moduleOp.dump());
+      didChange = true;
+    }
 
-      LLVM_DEBUG(llvm::dbgs() << "==== updateGlobalImmutability ====\n");
-      if (updateGlobalImmutability(globalTable)) {
-        LLVM_DEBUG(moduleOp.dump());
-        didChange = true;
-      }
+    LLVM_DEBUG(llvm::dbgs() << "==== updateGlobalImmutability ====\n");
+    if (updateGlobalImmutability(globalTable)) {
+      LLVM_DEBUG(moduleOp.dump());
+      didChange = true;
+    }
 
-      LLVM_DEBUG(llvm::dbgs() << "==== inlineConstantGlobalLoads ====\n");
-      if (inlineConstantGlobalLoads(globalTable)) {
-        LLVM_DEBUG(moduleOp.dump());
-        didChange = true;
-      }
+    LLVM_DEBUG(llvm::dbgs() << "==== inlineConstantGlobalLoads ====\n");
+    if (inlineConstantGlobalLoads(globalTable)) {
+      LLVM_DEBUG(moduleOp.dump());
+      didChange = true;
+    }
 
-      LLVM_DEBUG(llvm::dbgs() << "==== eraseUnusedGlobals ====\n");
-      if (eraseUnusedGlobals(globalTable)) {
-        LLVM_DEBUG(moduleOp.dump());
-        didChange = true;
-      }
+    LLVM_DEBUG(llvm::dbgs() << "==== eraseUnusedGlobals ====\n");
+    if (eraseUnusedGlobals(globalTable)) {
+      LLVM_DEBUG(moduleOp.dump());
+      didChange = true;
+    }
 
-      LLVM_DEBUG(llvm::dbgs() << "==== deduplicateConstantGlobals ====\n");
-      if (deduplicateConstantGlobals(globalTable)) {
-        LLVM_DEBUG(moduleOp.dump());
-        didChange = true;
-      }
-
-      if (!didChange) {
-        // No changes; complete fixed-point iteration.
-        break;
-      }
-      didChangeAny = true;
+    LLVM_DEBUG(llvm::dbgs() << "==== deduplicateConstantGlobals ====\n");
+    if (deduplicateConstantGlobals(globalTable)) {
+      LLVM_DEBUG(moduleOp.dump());
+      didChange = true;
     }
 
     afterFoldingGlobals =
         count(moduleOp.getOps<IREE::Util::GlobalOpInterface>());
 
-    if (didChangeAny) {
+    if (didChange) {
       signalFixedPointModified(moduleOp);
     }
   }
