@@ -666,6 +666,58 @@ public:
     return clJitTargetDevice;
   }
 
+  // Try to directly evaluate a trivial initializer without JIT.
+  // Handles the pattern: arith.constant -> util.global.store -> util.return
+  // Returns true if the initializer was handled.
+  bool tryDirectEvalInitializer(IREE::Util::InitializerOp initializerOp,
+                                SymbolTable &symbolTable) {
+    Block &body = initializerOp.getBody().front();
+
+    // Expect exactly 3 ops: constant, store, return.
+    auto it = body.begin();
+    auto end = body.end();
+    if (it == end)
+      return false;
+    auto constantOp = dyn_cast<arith::ConstantOp>(&*it);
+    if (!constantOp)
+      return false;
+    if (++it == end)
+      return false;
+    auto storeOp = dyn_cast<IREE::Util::GlobalStoreOpInterface>(&*it);
+    if (!storeOp)
+      return false;
+    if (++it == end)
+      return false;
+    if (!isa<IREE::Util::ReturnOp>(&*it))
+      return false;
+    if (++it != end)
+      return false;
+
+    // The store must consume the constant's result directly.
+    if (storeOp.getStoredGlobalValue() != constantOp.getResult())
+      return false;
+
+    // The constant must be an elements attr (tensor constant).
+    auto elementsAttr = dyn_cast<ElementsAttr>(constantOp.getValue());
+    if (!elementsAttr)
+      return false;
+
+    // Look up the target global and set its initial value directly.
+    auto globalOp = symbolTable.lookup<IREE::Util::GlobalOpInterface>(
+        storeOp.getGlobalAttr().getAttr());
+    if (!globalOp)
+      return false;
+
+    // Verify type compatibility.
+    if (auto typedAttr = dyn_cast<TypedAttr>(elementsAttr)) {
+      if (typedAttr.getType() != globalOp.getGlobalType())
+        return false;
+    }
+
+    globalOp.setGlobalInitialValue(elementsAttr);
+    return true;
+  }
+
   LogicalResult
   processFunctions(CompiledBinary &binary,
                    llvm::SmallVector<JitFunctionDesc> &jitFunctions,
@@ -787,12 +839,20 @@ public:
                                   getAnalysis<IREE::Util::ConstExprAnalysis>());
 
     // Iterate over initializers.
+    SymbolTable symbolTable(outerModuleOp);
     llvm::SmallVector<IREE::Util::InitializerOp> initializerOps;
     llvm::SmallVector<IREE::Util::InitializerOp> deadInitOps;
     for (auto childOp : outerModuleOp.getOps<IREE::Util::InitializerOp>()) {
       initializerOps.push_back(childOp);
     }
     for (auto initializerOp : initializerOps) {
+      // Short-circuit trivial initializers that just store a constant into a
+      // global (constant -> store -> return). Directly set the global's
+      // initial value instead of going through JIT compilation.
+      if (tryDirectEvalInitializer(initializerOp, symbolTable)) {
+        deadInitOps.push_back(initializerOp);
+        continue;
+      }
       if (succeeded(programBuilder.importInitializer(initializerOp))) {
         deadInitOps.push_back(initializerOp);
       } else if (debugEnabled) {
