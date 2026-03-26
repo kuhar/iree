@@ -470,6 +470,20 @@ struct RemoveBarriers : OpRewritePattern<IREE::Stream::AsyncBarrierOp> {
 
 struct ScheduleExecutionPass
     : IREE::Stream::impl::ScheduleExecutionPassBase<ScheduleExecutionPass> {
+  LogicalResult initialize(MLIRContext *context) override {
+    RewritePatternSet patterns(context);
+    for (auto *dialect : context->getLoadedDialects())
+      dialect->getCanonicalizationPatterns(patterns);
+    for (auto op : context->getRegisteredOperations())
+      op.getCanonicalizationPatterns(patterns, context);
+    // Barriers are used only for analysis and can be removed as part of
+    // cleanup.
+    patterns.insert<RemoveBarriers>(context);
+    frozenPatterns =
+        std::make_shared<FrozenRewritePatternSet>(std::move(patterns));
+    return success();
+  }
+
   void runOnOperation() override {
     auto *context = &getContext();
     mlir::CallableOpInterface parentOp = getOperation();
@@ -492,24 +506,12 @@ struct ScheduleExecutionPass
     }
 
     // Cleanup the dead ops.
-    // TODO(benvanik): less work here - maybe no patterns to just force folding?
-    RewritePatternSet patterns(context);
-    for (auto *dialect : context->getLoadedDialects()) {
-      dialect->getCanonicalizationPatterns(patterns);
-    }
-    for (auto op : context->getRegisteredOperations()) {
-      op.getCanonicalizationPatterns(patterns, context);
-    }
-
-    // Barriers are used only for analysis and can be removed as part of
-    // cleanup.
-    patterns.insert<RemoveBarriers>(context);
-
-    FrozenRewritePatternSet frozenPatterns(std::move(patterns));
-    if (failed(applyPatternsGreedily(getOperation(), frozenPatterns))) {
+    if (failed(applyPatternsGreedily(getOperation(), *frozenPatterns))) {
       return signalPassFailure();
     }
   }
+
+  std::shared_ptr<const FrozenRewritePatternSet> frozenPatterns;
 };
 
 } // namespace

@@ -30,26 +30,28 @@ public:
         .insert<BuiltinDialect, func::FuncDialect, IREE::Util::UtilDialect>();
   }
 
-  void runOnOperation() override {
-    auto *context = &getContext();
+  LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet patterns(context);
-
-    for (auto *dialect : context->getLoadedDialects()) {
+    for (auto *dialect : context->getLoadedDialects())
       dialect->getCanonicalizationPatterns(patterns);
-    }
-    for (auto op : context->getRegisteredOperations()) {
+    for (auto op : context->getRegisteredOperations())
       op.getCanonicalizationPatterns(patterns, context);
-    }
     IREE::Util::populateCommonPatterns(context, patterns);
+    frozenPatterns =
+        std::make_shared<FrozenRewritePatternSet>(std::move(patterns));
+    return success();
+  }
 
-    FrozenRewritePatternSet frozenPatterns(std::move(patterns));
-    if (failed(applyPatternsGreedily(getOperation(), frozenPatterns))) {
+  void runOnOperation() override {
+    if (failed(applyPatternsGreedily(getOperation(), *frozenPatterns))) {
       getOperation()->emitError()
           << "failed to apply patterns, likely due to a bad pattern that "
              "causes an infinite fixed point iteration";
       return signalPassFailure();
     }
   }
+
+  std::shared_ptr<const FrozenRewritePatternSet> frozenPatterns;
 };
 
 } // namespace

@@ -381,17 +381,18 @@ static bool deduplicateConstantGlobals(GlobalTable &globalTable) {
 }
 
 struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
-  void runOnOperation() override {
-    auto *context = &getContext();
+  LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet patterns(context);
-    for (auto *dialect : context->getLoadedDialects()) {
+    for (auto *dialect : context->getLoadedDialects())
       dialect->getCanonicalizationPatterns(patterns);
-    }
-    for (auto op : context->getRegisteredOperations()) {
+    for (auto op : context->getRegisteredOperations())
       op.getCanonicalizationPatterns(patterns, context);
-    }
-    FrozenRewritePatternSet frozenPatterns(std::move(patterns));
+    frozenPatterns =
+        std::make_shared<FrozenRewritePatternSet>(std::move(patterns));
+    return success();
+  }
 
+  void runOnOperation() override {
     GreedyRewriteConfig config;
     config.setRegionSimplificationLevel(GreedySimplifyRegionLevel::Normal);
 
@@ -401,7 +402,7 @@ struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
     bool didChangeAny = false;
     for (int i = 0; i < 10; ++i) {
       // TODO(benvanik): determine if we need this expensive folding.
-      if (failed(applyPatternsGreedily(moduleOp, frozenPatterns, config))) {
+      if (failed(applyPatternsGreedily(moduleOp, *frozenPatterns, config))) {
         signalPassFailure();
         return;
       }
@@ -461,6 +462,8 @@ struct FoldGlobalsPass : impl::FoldGlobalsPassBase<FoldGlobalsPass> {
       signalFixedPointModified(moduleOp);
     }
   }
+
+  std::shared_ptr<const FrozenRewritePatternSet> frozenPatterns;
 };
 
 } // namespace
