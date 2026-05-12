@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 #include "iree/compiler/dialects/iree_codegen.h"
 #include "iree/compiler/dialects/iree_gpu.h"
@@ -794,6 +795,38 @@ NB_MODULE(_ireeCompilerDialects, m) {
       },
       "Convert an iree_codegen.smt.constraints op to an SMT-LIB string.",
       py::arg("constraints_op"), py::arg("emit_reset") = false);
+
+  iree_codegen_module.def(
+      "materialize_compilation_info",
+      [](MlirOperation op, py::dict assignments) -> MlirAttribute {
+        std::vector<std::string> names;
+        std::vector<int64_t> values;
+        names.reserve(assignments.size());
+        values.reserve(assignments.size());
+        for (auto [key, value] : assignments) {
+          names.push_back(py::cast<std::string>(key));
+          values.push_back(py::cast<int64_t>(value));
+        }
+
+        std::vector<MlirStringRef> nameRefs;
+        nameRefs.reserve(names.size());
+        for (const std::string &name : names) {
+          nameRefs.push_back(mlirStringRefCreate(name.data(), name.size()));
+        }
+
+        MlirAttribute attr =
+            ireeCodegenMaterializeCompilationInfoFromConstraintsOp(
+                op, static_cast<intptr_t>(nameRefs.size()), nameRefs.data(),
+                values.data());
+        if (mlirAttributeIsNull(attr)) {
+          throw std::runtime_error(
+              "compilation_info materialization from constraints failed");
+        }
+        return attr;
+      },
+      "Materialize a compilation_info attr from a constraints op and flat knob "
+      "assignment dictionary.",
+      py::arg("constraints_op"), py::arg("assignments"));
 
   //===-------------------------------------------------------------------===//
   // Binding to utility function ireeCodegenGetTunerRootOps

@@ -20,6 +20,7 @@
 #include "iree/compiler/dialects/iree_codegen.h"
 #include "iree/compiler/dialects/iree_gpu.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/IR.h"
@@ -277,6 +278,24 @@ MlirAttribute ireeCodegenConvertConstraintsOpToSMTLIB(MlirOperation op,
   mlir::Attribute attr =
       mlir::StringAttr::get(constraintsOp->getContext(), os.str());
   return wrap(attr);
+}
+
+MlirAttribute ireeCodegenMaterializeCompilationInfoFromConstraintsOp(
+    MlirOperation op, intptr_t numAssignments,
+    const MlirStringRef *assignmentNames, const int64_t *assignmentValues) {
+  auto constraintsOp = llvm::cast<ConstraintsOp>(unwrap(op));
+  llvm::StringMap<int64_t> assignments;
+  for (intptr_t i = 0; i < numAssignments; ++i) {
+    assignments[unwrap(assignmentNames[i])] = assignmentValues[i];
+  }
+
+  llvm::FailureOr<CompilationInfoAttr> compilationInfo =
+      mlir::iree_compiler::materializeCompilationInfoFromConstraints(
+          constraintsOp, assignments);
+  if (failed(compilationInfo)) {
+    return wrap(mlir::Attribute());
+  }
+  return wrap(*compilationInfo);
 }
 
 ireeCodegenAttentionOpDetail

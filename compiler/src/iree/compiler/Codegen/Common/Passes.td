@@ -1119,6 +1119,15 @@ def TestExecutablePreprocessingPass :
   let summary = "Tests iree-hal-preprocess-executables-with behavior.";
 }
 
+def TestMaterializeSMTConstraintAssignmentsPass :
+    Pass<"iree-codegen-test-materialize-smt-constraint-assignments", ""> {
+  let summary = "Test materializing a constraints op knob assignment.";
+  let options = [
+    Option<"assignments", "assignments", "std::string", /*default=*/"",
+      [{Comma-separated knob assignment list, formatted as name=value pairs.}]>,
+  ];
+}
+
 def TestPartitionableLoopsInterfacePass :
     Pass<"iree-codegen-test-partitionable-loops-interface", ""> {
   let summary = "Test the PartitionableLoopsInterface";
