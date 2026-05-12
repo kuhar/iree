@@ -473,6 +473,255 @@ func.func @fold_broadcast_pad_expand_shape(%buffer : memref<2x64xf32>, %batch : 
 
 // -----
 
+func.func @dynamic_extract_expand_pad(%buffer : memref<50x32x16xf32>,
+                                      %offset : index,
+                                      %size : index) -> tensor<?x1x1x1x4xf32> {
+  %cst = arith.constant 0.000000e+00 : f32
+  %source = iree_codegen.load_from_buffer %buffer : memref<50x32x16xf32> -> tensor<50x32x16xf32>
+  %slice = tensor.extract_slice %source[%offset, 0, 0] [%size, 32, 16] [1, 1, 1] : tensor<50x32x16xf32> to tensor<?x32x16xf32>
+  %expanded = tensor.expand_shape %slice [[0], [1, 2], [3, 4]] output_shape [%size, 2, 16, 1, 16] : tensor<?x32x16xf32> into tensor<?x2x16x1x16xf32>
+  %subslice = tensor.extract_slice %expanded[0, 0, 0, 0, 0] [%size, 1, 1, 1, 4] [1, 1, 1, 1, 1] : tensor<?x2x16x1x16xf32> to tensor<?x1x1x1x4xf32>
+  %padded = tensor.pad %subslice low[0, 0, 0, 0, 0] high[0, 0, 0, 0, 0] {
+  ^bb0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index):
+    tensor.yield %cst : f32
+  } : tensor<?x1x1x1x4xf32> to tensor<?x1x1x1x4xf32>
+  return %padded : tensor<?x1x1x1x4xf32>
+}
+// CHECK-LABEL: @dynamic_extract_expand_pad
+//  CHECK-SAME:   %[[BUFFER:.+]]: memref<50x32x16xf32>, %[[OFFSET:.+]]: index, %[[SIZE:.+]]: index
+//       CHECK:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       CHECK:   %[[DEST:.+]] = tensor.empty(%[[SIZE]]) : tensor<?x1x1x1x4xf32>
+//   CHECK-NOT:   tensor.extract_slice
+//   CHECK-NOT:   tensor.expand_shape
+//   CHECK-NOT:   tensor.pad
+//       CHECK:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       CHECK:   iree_linalg_ext.yield
+// FOLD-LABEL: @dynamic_extract_expand_pad
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<50x32x16xf32>, %[[OFFSET:.+]]: index, %[[SIZE:.+]]: index
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[SIZE]]) : tensor<?x1x1x1x4xf32>
+//   FOLD-NOT:   tensor.extract_slice
+//   FOLD-NOT:   tensor.expand_shape
+//   FOLD-NOT:   tensor.pad
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   iree_linalg_ext.yield
+
+// -----
+
+func.func @fold_dynamic_extract_slice_into_map_load(
+    %buffer : memref<?xf32>, %offset : index, %size : index) -> tensor<?xf32> {
+  %source = iree_codegen.load_from_buffer %buffer : memref<?xf32> -> tensor<?xf32>
+  %slice = tensor.extract_slice %source[%offset] [%size] [1] : tensor<?xf32> to tensor<?xf32>
+  return %slice : tensor<?xf32>
+}
+// CHECK-LABEL: @fold_dynamic_extract_slice_into_map_load
+//       CHECK:   tensor.extract_slice
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_extract_slice_into_map_load
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?xf32>, %[[OFFSET:.+]]: index, %[[SIZE:.+]]: index
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[SIZE]]) : tensor<?xf32>
+//   FOLD-NOT:   tensor.extract_slice
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   arith.addi %[[OFFSET]]
+
+// -----
+
+func.func @fold_dynamic_expand_shape_into_map_load(
+    %buffer : memref<?x8xf32>, %outer : index) -> tensor<?x4x8xf32> {
+  %source = iree_codegen.load_from_buffer %buffer : memref<?x8xf32> -> tensor<?x8xf32>
+  %expanded = tensor.expand_shape %source [[0, 1], [2]] output_shape [%outer, 4, 8] : tensor<?x8xf32> into tensor<?x4x8xf32>
+  return %expanded : tensor<?x4x8xf32>
+}
+// CHECK-LABEL: @fold_dynamic_expand_shape_into_map_load
+//       CHECK:   tensor.expand_shape
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_expand_shape_into_map_load
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?x8xf32>, %[[OUTER:.+]]: index
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[OUTER]]) : tensor<?x4x8xf32>
+//   FOLD-NOT:   tensor.expand_shape
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   affine.linearize_index
+
+// -----
+
+func.func @fold_dynamic_transpose_late_init(%buffer : memref<?x?xf32>,
+                                            %cond : i1) -> tensor<?x?xf32> {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %source = iree_codegen.load_from_buffer %buffer : memref<?x?xf32> -> tensor<?x?xf32>
+  %d0 = tensor.dim %source, %c0 : tensor<?x?xf32>
+  %d1 = tensor.dim %source, %c1 : tensor<?x?xf32>
+  %init = scf.if %cond -> tensor<?x?xf32> {
+    %empty = tensor.empty(%d1, %d0) : tensor<?x?xf32>
+    scf.yield %empty : tensor<?x?xf32>
+  } else {
+    %empty = tensor.empty(%d1, %d0) : tensor<?x?xf32>
+    scf.yield %empty : tensor<?x?xf32>
+  }
+  %transposed = linalg.transpose ins(%source : tensor<?x?xf32>) outs(%init : tensor<?x?xf32>) permutation = [1, 0]
+  return %transposed : tensor<?x?xf32>
+}
+// CHECK-LABEL: @fold_dynamic_transpose_late_init
+//       CHECK:   linalg.transpose
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_transpose_late_init
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?x?xf32>, %[[COND:.+]]: i1
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[INIT:.+]] = scf.if %[[COND]]
+//       FOLD:   %[[DIM0:.+]] = tensor.dim %[[INIT]]
+//       FOLD:   %[[DIM1:.+]] = tensor.dim %[[INIT]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[DIM0]], %[[DIM1]]) : tensor<?x?xf32>
+//   FOLD-NOT:   linalg.transpose
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+
+// -----
+
+func.func @fold_dynamic_broadcast_late_init(%buffer : memref<?xf32>,
+                                            %cond : i1) -> tensor<?x4xf32> {
+  %c0 = arith.constant 0 : index
+  %source = iree_codegen.load_from_buffer %buffer : memref<?xf32> -> tensor<?xf32>
+  %d0 = tensor.dim %source, %c0 : tensor<?xf32>
+  %init = scf.if %cond -> tensor<?x4xf32> {
+    %empty = tensor.empty(%d0) : tensor<?x4xf32>
+    scf.yield %empty : tensor<?x4xf32>
+  } else {
+    %empty = tensor.empty(%d0) : tensor<?x4xf32>
+    scf.yield %empty : tensor<?x4xf32>
+  }
+  %broadcast = linalg.broadcast ins(%source : tensor<?xf32>) outs(%init : tensor<?x4xf32>) dimensions = [1]
+  return %broadcast : tensor<?x4xf32>
+}
+// CHECK-LABEL: @fold_dynamic_broadcast_late_init
+//       CHECK:   linalg.broadcast
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_broadcast_late_init
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?xf32>, %[[COND:.+]]: i1
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[INIT:.+]] = scf.if %[[COND]]
+//       FOLD:   %[[DIM:.+]] = tensor.dim %[[INIT]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[DIM]]) : tensor<?x4xf32>
+//   FOLD-NOT:   linalg.broadcast
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+
+// -----
+
+func.func @fold_dynamic_pad_into_map_load(%buffer : memref<?xf32>,
+                                          %low : index,
+                                          %high : index) -> tensor<?xf32> {
+  %cst = arith.constant 0.000000e+00 : f32
+  %source = iree_codegen.load_from_buffer %buffer : memref<?xf32> -> tensor<?xf32>
+  %low2 = arith.addi %low, %low : index
+  %high2 = arith.addi %high, %high : index
+  %padded = tensor.pad %source low[%low2] high[%high2] {
+  ^bb0(%arg0: index):
+    tensor.yield %cst : f32
+  } : tensor<?xf32> to tensor<?xf32>
+  return %padded : tensor<?xf32>
+}
+// CHECK-LABEL: @fold_dynamic_pad_into_map_load
+//       CHECK:   tensor.pad
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_pad_into_map_load
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?xf32>, %[[LOW:.+]]: index, %[[HIGH:.+]]: index
+//   FOLD-DAG:   %[[CST:.+]] = arith.constant 0.000000e+00 : f32
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[LOW2:.+]] = arith.addi %[[LOW]], %[[LOW]] : index
+//       FOLD:   %[[HIGH2:.+]] = arith.addi %[[HIGH]], %[[HIGH]] : index
+//       FOLD:   %[[PADDED_SIZE:.+]] = affine.apply {{.*}}[%{{.*}}, %[[LOW2]], %[[HIGH2]]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[PADDED_SIZE]]) : tensor<?xf32>
+//   FOLD-NOT:   tensor.pad
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   arith.subi {{.*}}, %[[LOW2]]
+
+// -----
+
+func.func @fold_dynamic_collapse_shape_into_map_load(
+    %buffer : memref<?x?x8xf32>) -> tensor<?x8xf32> {
+  %source = iree_codegen.load_from_buffer %buffer : memref<?x?x8xf32> -> tensor<?x?x8xf32>
+  %collapsed = tensor.collapse_shape %source [[0, 1], [2]] : tensor<?x?x8xf32> into tensor<?x8xf32>
+  return %collapsed : tensor<?x8xf32>
+}
+// CHECK-LABEL: @fold_dynamic_collapse_shape_into_map_load
+//       CHECK:   tensor.collapse_shape
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_collapse_shape_into_map_load
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?x?x8xf32>
+//   FOLD-DAG:   %[[C0:.+]] = arith.constant 0 : index
+//   FOLD-DAG:   %[[C1:.+]] = arith.constant 1 : index
+//   FOLD-DAG:   %[[DIM0:.+]] = memref.dim %[[BUFFER]], %[[C0]]
+//   FOLD-DAG:   %[[DIM1:.+]] = memref.dim %[[BUFFER]], %[[C1]]
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[COLLAPSED_SIZE:.+]] = affine.apply {{.*}}[%[[DIM0]], %[[DIM1]]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[COLLAPSED_SIZE]]) : tensor<?x8xf32>
+//   FOLD-NOT:   tensor.collapse_shape
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   affine.delinearize_index {{.*}} into (%[[DIM0]], %[[DIM1]])
+
+// -----
+
+func.func @fold_dynamic_collapse_single_dim_group(
+    %buffer : memref<?x4x8xf32>) -> tensor<?x32xf32> {
+  %source = iree_codegen.load_from_buffer %buffer : memref<?x4x8xf32> -> tensor<?x4x8xf32>
+  %collapsed = tensor.collapse_shape %source [[0], [1, 2]] : tensor<?x4x8xf32> into tensor<?x32xf32>
+  return %collapsed : tensor<?x32xf32>
+}
+// CHECK-LABEL: @fold_dynamic_collapse_single_dim_group
+//       CHECK:   tensor.collapse_shape
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_collapse_single_dim_group
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?x4x8xf32>
+//   FOLD-DAG:   %[[C0:.+]] = arith.constant 0 : index
+//   FOLD-DAG:   %[[DIM:.+]] = memref.dim %[[BUFFER]], %[[C0]]
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//   FOLD-NOT:   affine.apply
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[DIM]]) : tensor<?x32xf32>
+//   FOLD-NOT:   tensor.collapse_shape
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+
+// -----
+
+func.func @fold_dynamic_pack_into_map_load(
+    %buffer : memref<?xf32>, %outer : index) -> tensor<?x4xf32> {
+  %source = iree_codegen.load_from_buffer %buffer : memref<?xf32> -> tensor<?xf32>
+  %dest = tensor.empty(%outer) : tensor<?x4xf32>
+  %packed = linalg.pack %source inner_dims_pos = [0] inner_tiles = [4] into %dest : tensor<?xf32> -> tensor<?x4xf32>
+  return %packed : tensor<?x4xf32>
+}
+// CHECK-LABEL: @fold_dynamic_pack_into_map_load
+//       CHECK:   linalg.pack
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_pack_into_map_load
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?xf32>, %[[OUTER:.+]]: index
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[OUTER]]) : tensor<?x4xf32>
+//   FOLD-NOT:   linalg.pack
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   affine.linearize_index
+
+// -----
+
+func.func @fold_dynamic_unpack_into_map_load(
+    %buffer : memref<?x4xf32>, %size : index) -> tensor<?xf32> {
+  %source = iree_codegen.load_from_buffer %buffer : memref<?x4xf32> -> tensor<?x4xf32>
+  %dest = tensor.empty(%size) : tensor<?xf32>
+  %unpacked = linalg.unpack %source inner_dims_pos = [0] inner_tiles = [4] into %dest : tensor<?x4xf32> -> tensor<?xf32>
+  return %unpacked : tensor<?xf32>
+}
+// CHECK-LABEL: @fold_dynamic_unpack_into_map_load
+//       CHECK:   linalg.unpack
+//   CHECK-NOT:   iree_linalg_ext.map_load
+// FOLD-LABEL: @fold_dynamic_unpack_into_map_load
+//  FOLD-SAME:   %[[BUFFER:.+]]: memref<?x4xf32>, %[[SIZE:.+]]: index
+//       FOLD:   %[[SOURCE:.+]] = iree_codegen.load_from_buffer %[[BUFFER]]
+//       FOLD:   %[[DEST:.+]] = tensor.empty(%[[SIZE]]) : tensor<?xf32>
+//   FOLD-NOT:   linalg.unpack
+//       FOLD:   iree_linalg_ext.map_load %[[SOURCE]] into %[[DEST]]
+//       FOLD:   affine.delinearize_index
+
+// -----
+
 func.func @pack(%buffer : memref<8x4xf32>) -> tensor<2x2x4x2xf32> {
   %source = iree_codegen.load_from_buffer %buffer : memref<8x4xf32> -> tensor<8x4xf32>
   %dest = tensor.empty() : tensor<2x2x4x2xf32>

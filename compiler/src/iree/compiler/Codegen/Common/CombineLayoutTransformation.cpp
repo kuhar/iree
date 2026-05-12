@@ -26,6 +26,8 @@
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include <type_traits>
+
 #define DEBUG_TYPE "iree-codegen-combine-layout-transformation"
 
 namespace mlir::iree_compiler {
@@ -1016,13 +1018,15 @@ struct CombineResultLayoutTransformationPass final
 /// `newFillValue` can be provided to override the fill value (e.g., for pad).
 ///
 /// This handles the shared boilerplate:
-/// 1. Create new dest tensor from consumer result shape
-/// 2. Clone map_load with new dest and region
-/// 3. Apply index transformation via insertTransformationAtStart
-/// 4. Optionally update fill value
-/// 5. Replace consumer with new map_load result
+/// 1. Materialize the caller-provided consumer result shape
+/// 2. Create new dest tensor from that shape
+/// 3. Clone map_load with new dest and region
+/// 4. Apply index transformation via insertTransformationAtStart
+/// 5. Optionally update fill value
+/// 6. Replace consumer with new map_load result
 static FailureOr<MapLoadOp> foldConsumerIntoMapLoadImpl(
     RewriterBase &rewriter, Operation *consumerOp, MapLoadOp mapLoadOp,
+    function_ref<SmallVector<OpFoldResult>()> newSizesBuilder,
     function_ref<SmallVector<Value>(ArrayRef<BlockArgument>)>
         indexTransformBuilder,
     std::optional<Value> newFillValue = std::nullopt) {
@@ -1033,8 +1037,7 @@ static FailureOr<MapLoadOp> foldConsumerIntoMapLoadImpl(
   // Create new dest tensor matching consumer output shape.
   Value consumerResult = consumerOp->getResult(0);
   Type elementType = getElementTypeOrSelf(consumerResult.getType());
-  SmallVector<OpFoldResult> newSizes =
-      tensor::getMixedSizes(rewriter, loc, consumerResult);
+  SmallVector<OpFoldResult> newSizes = newSizesBuilder();
   Value newDest = tensor::EmptyOp::create(rewriter, loc, newSizes, elementType);
 
   // Clone the map_load with new dest.
@@ -1066,6 +1069,72 @@ static FailureOr<MapLoadOp> foldConsumerIntoMapLoadImpl(
   return newMapLoad;
 }
 
+static SmallVector<OpFoldResult>
+getMapLoadOutputMixedSizes(RewriterBase &rewriter, Location loc,
+                           MapLoadOp mapLoadOp) {
+  // Prefer the output operand because it is the map_load DPS init that survives
+  // while the current result is being replaced.
+  return tensor::getMixedSizes(rewriter, loc, mapLoadOp.getOutput());
+}
+
+static SmallVector<OpFoldResult> inferCollapsedShapeFromMixedSizes(
+    RewriterBase &rewriter, Location loc, ArrayRef<OpFoldResult> expandedShape,
+    ArrayRef<int64_t> collapsedStaticShape,
+    ArrayRef<ReassociationIndices> reassociations) {
+  SmallVector<OpFoldResult> collapsedShape;
+  size_t expandedShapeDim = 0;
+  for (auto [collapsedDim, reassociation] : llvm::enumerate(reassociations)) {
+    if (!ShapedType::isDynamic(collapsedStaticShape[collapsedDim])) {
+      collapsedShape.push_back(
+          rewriter.getIndexAttr(collapsedStaticShape[collapsedDim]));
+      expandedShapeDim += reassociation.size();
+      continue;
+    }
+    if (reassociation.size() == 1) {
+      collapsedShape.push_back(expandedShape[expandedShapeDim++]);
+      continue;
+    }
+    AffineExpr mulExpr = rewriter.getAffineSymbolExpr(0);
+    for (auto i : llvm::seq<unsigned>(1, reassociation.size())) {
+      mulExpr = mulExpr * rewriter.getAffineSymbolExpr(i);
+    }
+    collapsedShape.push_back(affine::makeComposedFoldedAffineApply(
+        rewriter, loc, mulExpr,
+        expandedShape.slice(expandedShapeDim, reassociation.size())));
+    expandedShapeDim += reassociation.size();
+  }
+  return collapsedShape;
+}
+
+static SmallVector<OpFoldResult>
+getDpsInitMixedSizes(RewriterBase &rewriter, Location loc, Operation *op) {
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+  return tensor::getMixedSizes(rewriter, loc, dpsOp.getDpsInits()[0]);
+}
+
+static SmallVector<OpFoldResult> getPadResultMixedSizes(RewriterBase &rewriter,
+                                                        Location loc,
+                                                        tensor::PadOp padOp,
+                                                        MapLoadOp mapLoadOp) {
+  ArrayRef<int64_t> resultShape = padOp.getResultType().getShape();
+  SmallVector<OpFoldResult> sourceSizes =
+      getMapLoadOutputMixedSizes(rewriter, loc, mapLoadOp);
+  SmallVector<OpFoldResult> resultSizes;
+  resultSizes.reserve(resultShape.size());
+  for (auto [dim, staticSize] : llvm::enumerate(resultShape)) {
+    if (ShapedType::isStatic(staticSize)) {
+      resultSizes.push_back(rewriter.getIndexAttr(staticSize));
+      continue;
+    }
+    OpFoldResult paddedSize = IREE::LinalgExt::addOfrs(
+        rewriter, loc, sourceSizes[dim], padOp.getMixedLowPad()[dim]);
+    paddedSize = IREE::LinalgExt::addOfrs(rewriter, loc, paddedSize,
+                                          padOp.getMixedHighPad()[dim]);
+    resultSizes.push_back(paddedSize);
+  }
+  return resultSizes;
+}
+
 /// Fold an `op` that does not affect index computation into a `mapLoadOp`.
 /// This is used for ops like `linalg::CopyOp`.
 static FailureOr<MapLoadOp>
@@ -1089,6 +1158,9 @@ static FailureOr<MapLoadOp> foldTransposePermIntoMapLoad(RewriterBase &rewriter,
   SmallVector<int64_t> inversePerm = invertPermutationVector(perm);
   return foldConsumerIntoMapLoadImpl(
       rewriter, consumerOp, mapLoadOp,
+      [&]() -> SmallVector<OpFoldResult> {
+        return getDpsInitMixedSizes(rewriter, consumerOp->getLoc(), consumerOp);
+      },
       [inversePerm](ArrayRef<BlockArgument> indices) -> SmallVector<Value> {
         SmallVector<Value> indexValues(indices.begin(), indices.end());
         return applyPermutation(indexValues, inversePerm);
@@ -1122,15 +1194,24 @@ static FailureOr<MapLoadOp> foldReshapeIntoMapLoad(RewriterBase &rewriter,
     return failure();
   }
   Location loc = reshapeOp->getLoc();
-  SmallVector<OpFoldResult> srcDims =
-      tensor::getMixedSizes(rewriter, loc, reshapeOp.getSrc());
-  SmallVector<OpFoldResult> resultDims =
-      tensor::getMixedSizes(rewriter, loc, reshapeOp.getResult());
+  SmallVector<OpFoldResult> srcDims;
+  SmallVector<OpFoldResult> resultDims;
 
   return foldConsumerIntoMapLoadImpl(
       rewriter, reshapeOp, mapLoadOp,
-      [&rewriter, loc, resultDims,
-       srcDims](ArrayRef<BlockArgument> indices) -> SmallVector<Value> {
+      [&]() -> SmallVector<OpFoldResult> {
+        srcDims = getMapLoadOutputMixedSizes(rewriter, loc, mapLoadOp);
+        if constexpr (std::is_same_v<ReshapeOpTy, tensor::ExpandShapeOp>) {
+          resultDims = reshapeOp.getMixedOutputShape();
+        } else {
+          resultDims = inferCollapsedShapeFromMixedSizes(
+              rewriter, loc, srcDims, reshapeOp.getResultType().getShape(),
+              reshapeOp.getReassociationIndices());
+        }
+        return resultDims;
+      },
+      [&rewriter, loc, &resultDims,
+       &srcDims](ArrayRef<BlockArgument> indices) -> SmallVector<Value> {
         SmallVector<Value> indexValues(indices.begin(), indices.end());
         auto linearizeIndexOp = affine::AffineLinearizeIndexOp::create(
             rewriter, loc, indexValues, resultDims, /*disjoint=*/true);
@@ -1196,8 +1277,12 @@ foldExtractSliceIntoMapLoad(RewriterBase &rewriter,
     return originalIndices;
   };
 
-  return foldConsumerIntoMapLoadImpl(rewriter, extractSliceOp, mapLoadOp,
-                                     indexTransformBuilder);
+  return foldConsumerIntoMapLoadImpl(
+      rewriter, extractSliceOp, mapLoadOp,
+      [&]() -> SmallVector<OpFoldResult> {
+        return extractSliceOp.getMixedSizes();
+      },
+      indexTransformBuilder);
 }
 
 /// Fold a consumer broadcast op (named or generic) into a producer `map_load`.
@@ -1214,6 +1299,10 @@ foldBroadcastIntoMapLoad(RewriterBase &rewriter, linalg::LinalgOp broadcastOp,
   AffineMap inputMap = broadcastOp.getIndexingMapsArray()[0];
   return foldConsumerIntoMapLoadImpl(
       rewriter, broadcastOp.getOperation(), mapLoadOp,
+      [&]() -> SmallVector<OpFoldResult> {
+        return getDpsInitMixedSizes(rewriter, broadcastOp->getLoc(),
+                                    broadcastOp);
+      },
       [inputMap](ArrayRef<BlockArgument> indices) -> SmallVector<Value> {
         SmallVector<Value> sourceIndices;
         sourceIndices.reserve(inputMap.getNumResults());
@@ -1266,8 +1355,12 @@ static FailureOr<MapLoadOp> foldPadIntoMapLoad(RewriterBase &rewriter,
     return sourceIndices;
   };
 
-  return foldConsumerIntoMapLoadImpl(rewriter, padOp, mapLoadOp,
-                                     indexTransformBuilder, padValue);
+  return foldConsumerIntoMapLoadImpl(
+      rewriter, padOp, mapLoadOp,
+      [&]() -> SmallVector<OpFoldResult> {
+        return getPadResultMixedSizes(rewriter, loc, padOp, mapLoadOp);
+      },
+      indexTransformBuilder, padValue);
 }
 
 /// Decompose a consumer `packOp` and fold all resulting ops into the producer
