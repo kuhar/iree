@@ -20,7 +20,7 @@
     {iree_codegen.target_info = #gpu_target}>
 #translation = #iree_codegen.translation_info<
     pipeline = #iree_gpu.pipeline<VectorDistribute>
-    workgroup_size = [64, 1, 1] subgroup_size = 64>
+    workgroup_size = [128, 1, 1] subgroup_size = 64>
 
 func.func @matmul_e2e_generated_violation(
     %lhs: tensor<128x64xf32>, %rhs: tensor<64x256xf32>)
@@ -33,13 +33,13 @@ func.func @matmul_e2e_generated_violation(
       ins(%cst : f32) outs(%init : tensor<128x256xf32>)
       -> tensor<128x256xf32>
   // expected-error @below {{pipeline constraints violated}}
-  // expected-note @below {{dim_0 must be divisible by wg_0 (128 % 30 == 0)}}
+  // expected-note @below {{dim_0 must be divisible by wg_0 (128 % 96 == 0)}}
   %result = linalg.matmul {
       lowering_config = #iree_gpu.lowering_config<{
-          workgroup = [30, 64, 0],
+          workgroup = [96, 64, 0],
           reduction = [0, 0, 16],
           mma_kind = #iree_gpu.mma_layout<MFMA_F32_16x16x4_F32>,
-          subgroup_basis = [[2, 2, 1], [0, 1, 2]]}>,
+          subgroup_basis = [[2, 1, 1], [0, 1, 2]]}>,
       root_op = #iree_codegen.root_op<set = 0>}
       ins(%lhs, %rhs : tensor<128x64xf32>, tensor<64x256xf32>)
       outs(%fill : tensor<128x256xf32>) -> tensor<128x256xf32>
@@ -61,7 +61,7 @@ func.func @matmul_e2e_generated_violation(
     {iree_codegen.target_info = #gpu_target}>
 #translation = #iree_codegen.translation_info<
     pipeline = #iree_gpu.pipeline<VectorDistribute>
-    workgroup_size = [64, 1, 1] subgroup_size = 64>
+    workgroup_size = [128, 1, 1] subgroup_size = 64>
 
 func.func @conv_e2e_generated_violation(
     %input: tensor<1x18x18x64xf32>, %filter: tensor<3x3x64x128xf32>)
@@ -109,7 +109,7 @@ func.func @conv_e2e_generated_violation(
     {iree_codegen.target_info = #gpu_target}>
 #translation = #iree_codegen.translation_info<
     pipeline = #iree_gpu.pipeline<VectorDistribute>
-    workgroup_size = [64, 1, 1] subgroup_size = 64>
+    workgroup_size = [128, 1, 1] subgroup_size = 64>
 
 func.func @matmul_e2e_constraints_erased(
     %lhs: tensor<128x64xf32>, %rhs: tensor<64x256xf32>)
@@ -123,10 +123,10 @@ func.func @matmul_e2e_constraints_erased(
       -> tensor<128x256xf32>
   %result = linalg.matmul {
       lowering_config = #iree_gpu.lowering_config<{
-          workgroup = [32, 64, 0],
+          workgroup = [128, 64, 0],
           reduction = [0, 0, 16],
           mma_kind = #iree_gpu.mma_layout<MFMA_F32_16x16x4_F32>,
-          subgroup_basis = [[2, 2, 1], [0, 1, 2]]}>,
+          subgroup_basis = [[2, 1, 1], [0, 1, 2]]}>,
       root_op = #iree_codegen.root_op<set = 0>}
       ins(%lhs, %rhs : tensor<128x64xf32>, tensor<64x256xf32>)
       outs(%fill : tensor<128x256xf32>) -> tensor<128x256xf32>
