@@ -97,7 +97,6 @@ iree_check_single_backend_test_suite(
     "map_load.mlir"
     "map_store.mlir"
     "scan.mlir"
-    "scan_configured.mlir"
     "scatter.mlir"
     "sort.mlir"
     "topk_v2.mlir"
@@ -107,6 +106,19 @@ iree_check_single_backend_test_suite(
     "rocm"
   DRIVER
     "hip"
+)
+
+iree_check_single_backend_test_suite(
+  NAME
+    check_rocm_hip_wave64
+  SRCS
+    "scan_configured.mlir"
+  TARGET_BACKEND
+    "rocm"
+  DRIVER
+    "hip"
+  LABELS
+    "requires-gpu-wave64"
 )
 
 iree_check_single_backend_test_suite(
